@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>التحليل القانوني</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>التحليل القانوني</h1>
+        
+        <h2>مراحل التحليل القانوني</h2>
+        <div class="stages-info">
+            {% for stage, info in stages.items() %}
+            <div class="stage-info-card">
+                <h3>{{ stage }}</h3>
+                <p>{{ info.description }}</p>
+                <h4>النقاط الرئيسية:</h4>
+                <ul>
+                    {% for point in info.key_points %}
+                    <li>{{ point }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endfor %}
+        </div>
+
+        <h2>تحليل نص قانوني</h2>
+        <textarea id="textInput" placeholder="أدخل النص القانوني هنا..."></textarea>
+        <button id="analyzeButton" onclick="analyzeText()">تحليل</button>
+        
+        <div class="progress-bar">
+            <div id="progress" class="progress"></div>
+        </div>
+        
+        <div id="loading" class="loading">
+            جاري التحليل... يرجى الانتظار
+        </div>
+        
+        <div id="result"></div>
+    </div>
+
+    <!-- Pass stages data to JavaScript -->
+    <script id="stages-data" type="application/json">
+        {{ stages|tojson|safe }}
+    </script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html> 
