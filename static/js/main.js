@@ -1,5 +1,5 @@
 let currentStage = 0;
-let totalStages = 0;
+let totalStages = 12;
 let eventSource = null;
 
 // Get DOM elements
@@ -39,6 +39,19 @@ async function analyzeText() {
     progressBar.style.width = '0%';
     loadingElement.style.display = 'block';
     analyzeButton.disabled = true;
+    currentStage = 0;
+
+    // Start analyzing stages one by one
+    await analyzeNextStage(text);
+}
+
+async function analyzeNextStage(text) {
+    if (currentStage >= totalStages) {
+        // All stages completed
+        loadingElement.style.display = 'none';
+        analyzeButton.disabled = false;
+        return;
+    }
 
     try {
         const response = await fetch('/analyze', {
@@ -46,7 +59,10 @@ async function analyzeText() {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ text: text })
+            body: JSON.stringify({ 
+                text: text,
+                stage: currentStage
+            })
         });
 
         if (!response.ok) {
@@ -70,6 +86,14 @@ async function analyzeText() {
                     try {
                         const data = JSON.parse(line.slice(6));
                         updateUI(data);
+                        
+                        // If this stage is completed, move to the next one
+                        if (data.stage_index === currentStage && data.status === 'completed') {
+                            currentStage++;
+                            updateProgress();
+                            // Add a small delay before starting the next stage
+                            setTimeout(() => analyzeNextStage(text), 1000);
+                        }
                     } catch (e) {
                         console.error('Error parsing JSON:', e);
                     }
@@ -78,8 +102,11 @@ async function analyzeText() {
         }
     } catch (error) {
         console.error('Error:', error);
-        resultElement.innerHTML = `<div class="error">حدث خطأ أثناء التحليل: ${error.message}</div>`;
-    } finally {
+        resultElement.innerHTML += `
+            <div class="error-message">
+                <div class="error-icon">❌</div>
+                <div class="error-text">حدث خطأ أثناء التحليل: ${error.message}</div>
+            </div>`;
         loadingElement.style.display = 'none';
         analyzeButton.disabled = false;
     }
@@ -97,10 +124,6 @@ function updateUI(data) {
     }
 
     if (data.stage) {
-        const stageIndex = Object.keys(stagesData).indexOf(data.stage);
-        const progress = ((stageIndex + 1) / Object.keys(stagesData).length) * 100;
-        progressBar.style.width = `${progress}%`;
-
         const stageDiv = document.createElement('div');
         stageDiv.className = 'stage-result';
         

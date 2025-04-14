@@ -115,8 +115,8 @@ def verify_and_enhance_analysis(model, stage, analysis, text):
         logger.error(f"❌ خطأ في التحقق من تحليل {stage}: {str(e)}")
         return analysis
 
-def generate_analysis(text):
-    """Generate analysis for each stage and stream the results in order"""
+def generate_analysis(text, stage_index):
+    """Generate analysis for a single stage"""
     try:
         logger.info("🚀 بدء عملية التحليل القانوني...")
         logger.info(f"📝 النص المدخل: {text[:100]}...")
@@ -124,87 +124,94 @@ def generate_analysis(text):
         logger.info("⚙️ تهيئة نموذج Gemini...")
         model = genai.GenerativeModel('models/gemini-2.0-flash-001')
         
-        total_stages = len(STAGES)
-        for index, stage in enumerate(STAGES, 1):
+        stage = STAGES[stage_index]
+        try:
+            logger.info(f"\n📊 المرحلة {stage_index + 1}/12: {stage}")
+            logger.info("🔍 جاري تحليل المرحلة...")
+            
+            prompt = get_stage_prompt(stage, text)
+            logger.debug(f"Prompt for {stage}: {prompt[:200]}...")
+            
+            # Get initial analysis with timeout
             try:
-                logger.info(f"\n📊 المرحلة {index}/{total_stages}: {stage}")
-                logger.info("🔍 جاري تحليل المرحلة...")
-                
-                prompt = get_stage_prompt(stage, text)
-                logger.debug(f"Prompt for {stage}: {prompt[:200]}...")
-                
-                # Get initial analysis with timeout
-                try:
-                    response = model.generate_content(prompt)
-                    if response and response.text:
-                        initial_analysis = response.text
-                        logger.info(f"✅ تم اكتمال التحليل الأولي لـ {stage}")
+                response = model.generate_content(prompt)
+                if response and response.text:
+                    initial_analysis = response.text
+                    logger.info(f"✅ تم اكتمال التحليل الأولي لـ {stage}")
+                    
+                    # Verify and enhance the analysis with timeout
+                    try:
+                        enhanced_analysis = verify_and_enhance_analysis(model, stage, initial_analysis, text)
                         
-                        # Verify and enhance the analysis with timeout
-                        try:
-                            enhanced_analysis = verify_and_enhance_analysis(model, stage, initial_analysis, text)
-                            
-                            result = {
-                                'stage': stage,
-                                'description': STAGES_DETAILS[stage]['description'],
-                                'key_points': STAGES_DETAILS[stage]['key_points'],
-                                'analysis': enhanced_analysis,
-                                'status': 'completed'
-                            }
-                        except Exception as e:
-                            logger.error(f"❌ خطأ في التحقق من تحليل {stage}: {str(e)}")
-                            result = {
-                                'stage': stage,
-                                'description': STAGES_DETAILS[stage]['description'],
-                                'key_points': STAGES_DETAILS[stage]['key_points'],
-                                'analysis': initial_analysis,
-                                'status': 'completed'
-                            }
-                    else:
-                        logger.warning(f"⚠️ استجابة فارغة للمرحلة: {stage}")
                         result = {
                             'stage': stage,
                             'description': STAGES_DETAILS[stage]['description'],
                             'key_points': STAGES_DETAILS[stage]['key_points'],
-                            'analysis': "لم يتم الحصول على تحليل لهذه المرحلة",
-                            'status': 'error'
+                            'analysis': enhanced_analysis,
+                            'status': 'completed',
+                            'stage_index': stage_index,
+                            'total_stages': len(STAGES)
                         }
-                except Exception as e:
-                    logger.error(f"❌ خطأ في تحليل المرحلة {stage}: {str(e)}")
+                    except Exception as e:
+                        logger.error(f"❌ خطأ في التحقق من تحليل {stage}: {str(e)}")
+                        result = {
+                            'stage': stage,
+                            'description': STAGES_DETAILS[stage]['description'],
+                            'key_points': STAGES_DETAILS[stage]['key_points'],
+                            'analysis': initial_analysis,
+                            'status': 'completed',
+                            'stage_index': stage_index,
+                            'total_stages': len(STAGES)
+                        }
+                else:
+                    logger.warning(f"⚠️ استجابة فارغة للمرحلة: {stage}")
                     result = {
                         'stage': stage,
                         'description': STAGES_DETAILS[stage]['description'],
                         'key_points': STAGES_DETAILS[stage]['key_points'],
-                        'analysis': f"حدث خطأ أثناء تحليل هذه المرحلة: {str(e)}",
-                        'status': 'error'
+                        'analysis': "لم يتم الحصول على تحليل لهذه المرحلة",
+                        'status': 'error',
+                        'stage_index': stage_index,
+                        'total_stages': len(STAGES)
                     }
-                
-                # Stream the result for this stage
-                yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
-                
-                # Add a small delay between stages to prevent overload
-                time.sleep(1)
-                
             except Exception as e:
-                logger.error(f"❌ خطأ في معالجة المرحلة {stage}: {str(e)}")
-                error_result = {
+                logger.error(f"❌ خطأ في تحليل المرحلة {stage}: {str(e)}")
+                result = {
                     'stage': stage,
                     'description': STAGES_DETAILS[stage]['description'],
                     'key_points': STAGES_DETAILS[stage]['key_points'],
-                    'analysis': f"حدث خطأ في معالجة هذه المرحلة: {str(e)}",
-                    'status': 'error'
+                    'analysis': f"حدث خطأ أثناء تحليل هذه المرحلة: {str(e)}",
+                    'status': 'error',
+                    'stage_index': stage_index,
+                    'total_stages': len(STAGES)
                 }
-                yield f"data: {json.dumps(error_result, ensure_ascii=False)}\n\n"
-                continue
             
-        logger.info("\n✨ تم اكتمال جميع مراحل التحليل بنجاح!")
+            # Stream the result for this stage
+            yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
+            
+        except Exception as e:
+            logger.error(f"❌ خطأ في معالجة المرحلة {stage}: {str(e)}")
+            error_result = {
+                'stage': stage,
+                'description': STAGES_DETAILS[stage]['description'],
+                'key_points': STAGES_DETAILS[stage]['key_points'],
+                'analysis': f"حدث خطأ في معالجة هذه المرحلة: {str(e)}",
+                'status': 'error',
+                'stage_index': stage_index,
+                'total_stages': len(STAGES)
+            }
+            yield f"data: {json.dumps(error_result, ensure_ascii=False)}\n\n"
+            
+        logger.info(f"\n✨ تم اكتمال تحليل المرحلة {stage_index + 1} بنجاح!")
             
     except Exception as e:
         logger.error(f"❌ خطأ في generate_analysis: {str(e)}")
         logger.error(f"تفاصيل الخطأ: {traceback.format_exc()}")
         error_result = {
             'error': str(e),
-            'status': 'error'
+            'status': 'error',
+            'stage_index': stage_index,
+            'total_stages': len(STAGES)
         }
         yield f"data: {json.dumps(error_result, ensure_ascii=False)}\n\n"
 
@@ -217,15 +224,21 @@ def index():
 def analyze():
     if request.method == 'GET':
         text = request.args.get('text', '')
+        stage_index = int(request.args.get('stage', 0))
     else:
         text = request.json.get('text', '')
+        stage_index = request.json.get('stage', 0)
     
     if not text:
         logger.warning("⚠️ لم يتم تقديم نص للتحليل")
         return jsonify({'error': 'No text provided'}), 400
     
-    logger.info("🔄 بدء طلب تحليل جديد")
-    return Response(generate_analysis(text), mimetype='text/event-stream')
+    if stage_index < 0 or stage_index >= len(STAGES):
+        logger.warning("⚠️ رقم مرحلة غير صحيح")
+        return jsonify({'error': 'Invalid stage number'}), 400
+    
+    logger.info(f"🔄 بدء طلب تحليل جديد للمرحلة {stage_index + 1}")
+    return Response(generate_analysis(text, stage_index), mimetype='text/event-stream')
 
 if __name__ == '__main__':
     logger.info("🌐 بدء تشغيل تطبيق Flask...")
