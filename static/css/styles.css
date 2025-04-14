@@ -156,6 +156,7 @@ button:active {
 
 /* Loading Animation */
 .loading {
+    display: none;
     background: linear-gradient(135deg, #4299e1, #667eea);
     color: white;
     padding: 1rem 2rem;
