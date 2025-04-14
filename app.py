@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import traceback
 import json
 from analysis_stages import STAGES_DETAILS, get_stage_prompt
+import time
 
 # Configure logging with colors
 class ColoredFormatter(logging.Formatter):
@@ -125,51 +126,76 @@ def generate_analysis(text):
         
         total_stages = len(STAGES)
         for index, stage in enumerate(STAGES, 1):
-            logger.info(f"\n📊 المرحلة {index}/{total_stages}: {stage}")
-            logger.info("🔍 جاري تحليل المرحلة...")
-            
-            prompt = get_stage_prompt(stage, text)
-            logger.debug(f"Prompt for {stage}: {prompt[:200]}...")
-            
             try:
-                # Get initial analysis
-                response = model.generate_content(prompt)
-                if response and response.text:
-                    initial_analysis = response.text
-                    logger.info(f"✅ تم اكتمال التحليل الأولي لـ {stage}")
-                    
-                    # Verify and enhance the analysis
-                    enhanced_analysis = verify_and_enhance_analysis(model, stage, initial_analysis, text)
-                    
+                logger.info(f"\n📊 المرحلة {index}/{total_stages}: {stage}")
+                logger.info("🔍 جاري تحليل المرحلة...")
+                
+                prompt = get_stage_prompt(stage, text)
+                logger.debug(f"Prompt for {stage}: {prompt[:200]}...")
+                
+                # Get initial analysis with timeout
+                try:
+                    response = model.generate_content(prompt)
+                    if response and response.text:
+                        initial_analysis = response.text
+                        logger.info(f"✅ تم اكتمال التحليل الأولي لـ {stage}")
+                        
+                        # Verify and enhance the analysis with timeout
+                        try:
+                            enhanced_analysis = verify_and_enhance_analysis(model, stage, initial_analysis, text)
+                            
+                            result = {
+                                'stage': stage,
+                                'description': STAGES_DETAILS[stage]['description'],
+                                'key_points': STAGES_DETAILS[stage]['key_points'],
+                                'analysis': enhanced_analysis,
+                                'status': 'completed'
+                            }
+                        except Exception as e:
+                            logger.error(f"❌ خطأ في التحقق من تحليل {stage}: {str(e)}")
+                            result = {
+                                'stage': stage,
+                                'description': STAGES_DETAILS[stage]['description'],
+                                'key_points': STAGES_DETAILS[stage]['key_points'],
+                                'analysis': initial_analysis,
+                                'status': 'completed'
+                            }
+                    else:
+                        logger.warning(f"⚠️ استجابة فارغة للمرحلة: {stage}")
+                        result = {
+                            'stage': stage,
+                            'description': STAGES_DETAILS[stage]['description'],
+                            'key_points': STAGES_DETAILS[stage]['key_points'],
+                            'analysis': "لم يتم الحصول على تحليل لهذه المرحلة",
+                            'status': 'error'
+                        }
+                except Exception as e:
+                    logger.error(f"❌ خطأ في تحليل المرحلة {stage}: {str(e)}")
                     result = {
                         'stage': stage,
                         'description': STAGES_DETAILS[stage]['description'],
                         'key_points': STAGES_DETAILS[stage]['key_points'],
-                        'analysis': enhanced_analysis,
-                        'status': 'completed'
-                    }
-                else:
-                    logger.warning(f"⚠️ استجابة فارغة للمرحلة: {stage}")
-                    result = {
-                        'stage': stage,
-                        'description': STAGES_DETAILS[stage]['description'],
-                        'key_points': STAGES_DETAILS[stage]['key_points'],
-                        'analysis': "لم يتم الحصول على تحليل لهذه المرحلة",
+                        'analysis': f"حدث خطأ أثناء تحليل هذه المرحلة: {str(e)}",
                         'status': 'error'
                     }
+                
+                # Stream the result for this stage
+                yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
+                
+                # Add a small delay between stages to prevent overload
+                time.sleep(1)
+                
             except Exception as e:
-                logger.error(f"❌ خطأ في تحليل المرحلة {stage}: {str(e)}")
-                logger.error(f"تفاصيل الخطأ: {traceback.format_exc()}")
-                result = {
+                logger.error(f"❌ خطأ في معالجة المرحلة {stage}: {str(e)}")
+                error_result = {
                     'stage': stage,
                     'description': STAGES_DETAILS[stage]['description'],
                     'key_points': STAGES_DETAILS[stage]['key_points'],
-                    'analysis': f"حدث خطأ أثناء تحليل هذه المرحلة: {str(e)}",
+                    'analysis': f"حدث خطأ في معالجة هذه المرحلة: {str(e)}",
                     'status': 'error'
                 }
-            
-            # Stream the result for this stage
-            yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps(error_result, ensure_ascii=False)}\n\n"
+                continue
             
         logger.info("\n✨ تم اكتمال جميع مراحل التحليل بنجاح!")
             
