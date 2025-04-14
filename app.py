@@ -53,6 +53,9 @@ if not GEMINI_API_KEY:
 
 logger.info(f"API Key found: {GEMINI_API_KEY[:5]}...{GEMINI_API_KEY[-5:]}")
 
+# Configure Gemini API
+genai.configure(api_key=GEMINI_API_KEY)
+
 # Initialize Flask app
 app = Flask(__name__)
 
