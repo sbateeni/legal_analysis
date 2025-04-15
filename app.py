@@ -76,6 +76,9 @@ STAGES = [
     "المرحلة الثانية عشرة: تقديم التوصيات"
 ]
 
+# Check if running on Render
+IS_RENDER = os.environ.get('RENDER', False)
+
 def verify_and_enhance_analysis(model, stage, analysis, text):
     """Verify and enhance the analysis for accuracy and completeness"""
     try:
@@ -132,55 +135,65 @@ def generate_analysis(text, stage_index):
             prompt = get_stage_prompt(stage, text)
             logger.debug(f"Prompt for {stage}: {prompt[:200]}...")
             
-            # Get initial analysis with timeout
-            try:
-                response = model.generate_content(prompt)
-                if response and response.text:
-                    initial_analysis = response.text
-                    logger.info(f"✅ تم اكتمال التحليل الأولي لـ {stage}")
+            # Get initial analysis with retry mechanism for Render
+            max_retries = 3 if IS_RENDER else 1
+            retry_count = 0
+            initial_analysis = None
+            
+            while retry_count < max_retries:
+                try:
+                    response = model.generate_content(prompt)
+                    if response and response.text:
+                        initial_analysis = response.text
+                        logger.info(f"✅ تم اكتمال التحليل الأولي لـ {stage}")
+                        break
+                    else:
+                        logger.warning(f"⚠️ استجابة فارغة للمرحلة: {stage}")
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            logger.info(f"🔄 إعادة المحاولة {retry_count + 1}/{max_retries}...")
+                            time.sleep(2)  # Wait before retrying
+                except Exception as e:
+                    logger.error(f"❌ خطأ في تحليل المرحلة {stage} (محاولة {retry_count + 1}): {str(e)}")
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        logger.info(f"🔄 إعادة المحاولة {retry_count + 1}/{max_retries}...")
+                        time.sleep(2)  # Wait before retrying
+                    else:
+                        raise  # Re-raise the exception if all retries failed
+            
+            if initial_analysis:
+                # Verify and enhance the analysis with retry mechanism for Render
+                try:
+                    enhanced_analysis = verify_and_enhance_analysis(model, stage, initial_analysis, text)
                     
-                    # Verify and enhance the analysis with timeout
-                    try:
-                        enhanced_analysis = verify_and_enhance_analysis(model, stage, initial_analysis, text)
-                        
-                        result = {
-                            'stage': stage,
-                            'description': STAGES_DETAILS[stage]['description'],
-                            'key_points': STAGES_DETAILS[stage]['key_points'],
-                            'analysis': enhanced_analysis,
-                            'status': 'completed',
-                            'stage_index': stage_index,
-                            'total_stages': len(STAGES)
-                        }
-                    except Exception as e:
-                        logger.error(f"❌ خطأ في التحقق من تحليل {stage}: {str(e)}")
-                        result = {
-                            'stage': stage,
-                            'description': STAGES_DETAILS[stage]['description'],
-                            'key_points': STAGES_DETAILS[stage]['key_points'],
-                            'analysis': initial_analysis,
-                            'status': 'completed',
-                            'stage_index': stage_index,
-                            'total_stages': len(STAGES)
-                        }
-                else:
-                    logger.warning(f"⚠️ استجابة فارغة للمرحلة: {stage}")
                     result = {
                         'stage': stage,
                         'description': STAGES_DETAILS[stage]['description'],
                         'key_points': STAGES_DETAILS[stage]['key_points'],
-                        'analysis': "لم يتم الحصول على تحليل لهذه المرحلة",
-                        'status': 'error',
+                        'analysis': enhanced_analysis,
+                        'status': 'completed',
                         'stage_index': stage_index,
                         'total_stages': len(STAGES)
                     }
-            except Exception as e:
-                logger.error(f"❌ خطأ في تحليل المرحلة {stage}: {str(e)}")
+                except Exception as e:
+                    logger.error(f"❌ خطأ في التحقق من تحليل {stage}: {str(e)}")
+                    result = {
+                        'stage': stage,
+                        'description': STAGES_DETAILS[stage]['description'],
+                        'key_points': STAGES_DETAILS[stage]['key_points'],
+                        'analysis': initial_analysis,
+                        'status': 'completed',
+                        'stage_index': stage_index,
+                        'total_stages': len(STAGES)
+                    }
+            else:
+                logger.warning(f"⚠️ فشل جميع محاولات تحليل المرحلة: {stage}")
                 result = {
                     'stage': stage,
                     'description': STAGES_DETAILS[stage]['description'],
                     'key_points': STAGES_DETAILS[stage]['key_points'],
-                    'analysis': f"حدث خطأ أثناء تحليل هذه المرحلة: {str(e)}",
+                    'analysis': "لم يتم الحصول على تحليل لهذه المرحلة بعد عدة محاولات",
                     'status': 'error',
                     'stage_index': stage_index,
                     'total_stages': len(STAGES)

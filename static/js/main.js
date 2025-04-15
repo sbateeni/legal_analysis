@@ -1,6 +1,8 @@
 let currentStage = 0;
 let totalStages = 12;
 let eventSource = null;
+let retryCount = 0;
+const maxRetries = 3;
 
 // Get DOM elements
 const textInput = document.getElementById('textInput');
@@ -40,6 +42,7 @@ async function analyzeText() {
     loadingElement.style.display = 'block';
     analyzeButton.disabled = true;
     currentStage = 0;
+    retryCount = 0;
 
     // Start analyzing stages one by one
     await analyzeNextStage(text);
@@ -90,9 +93,25 @@ async function analyzeNextStage(text) {
                         // If this stage is completed, move to the next one
                         if (data.stage_index === currentStage && data.status === 'completed') {
                             currentStage++;
+                            retryCount = 0; // Reset retry count for next stage
                             updateProgress();
                             // Add a small delay before starting the next stage
                             setTimeout(() => analyzeNextStage(text), 1000);
+                        } else if (data.stage_index === currentStage && data.status === 'error') {
+                            // If there's an error, retry if we haven't exceeded max retries
+                            if (retryCount < maxRetries) {
+                                retryCount++;
+                                console.log(`Retrying stage ${currentStage + 1} (attempt ${retryCount}/${maxRetries})...`);
+                                // Add a delay before retrying
+                                setTimeout(() => analyzeNextStage(text), 2000);
+                            } else {
+                                // If we've exceeded max retries, move to the next stage
+                                console.log(`Max retries exceeded for stage ${currentStage + 1}, moving to next stage`);
+                                currentStage++;
+                                retryCount = 0;
+                                updateProgress();
+                                setTimeout(() => analyzeNextStage(text), 1000);
+                            }
                         }
                     } catch (e) {
                         console.error('Error parsing JSON:', e);
@@ -102,13 +121,26 @@ async function analyzeNextStage(text) {
         }
     } catch (error) {
         console.error('Error:', error);
-        resultElement.innerHTML += `
-            <div class="error-message">
-                <div class="error-icon">❌</div>
-                <div class="error-text">حدث خطأ أثناء التحليل: ${error.message}</div>
-            </div>`;
-        loadingElement.style.display = 'none';
-        analyzeButton.disabled = false;
+        
+        // If there's an error, retry if we haven't exceeded max retries
+        if (retryCount < maxRetries) {
+            retryCount++;
+            console.log(`Retrying stage ${currentStage + 1} (attempt ${retryCount}/${maxRetries})...`);
+            // Add a delay before retrying
+            setTimeout(() => analyzeNextStage(text), 2000);
+        } else {
+            // If we've exceeded max retries, move to the next stage
+            console.log(`Max retries exceeded for stage ${currentStage + 1}, moving to next stage`);
+            resultElement.innerHTML += `
+                <div class="error-message">
+                    <div class="error-icon">❌</div>
+                    <div class="error-text">حدث خطأ أثناء تحليل المرحلة ${currentStage + 1}: ${error.message}</div>
+                </div>`;
+            currentStage++;
+            retryCount = 0;
+            updateProgress();
+            setTimeout(() => analyzeNextStage(text), 1000);
+        }
     }
 }
 
