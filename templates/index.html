@@ -5,45 +5,107 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>التحليل القانوني</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="container">
-        <h1>التحليل القانوني</h1>
-        
-        <h2>مراحل التحليل القانوني</h2>
-        <div class="stages-info">
-            {% for stage, info in stages.items() %}
-            <div class="stage-info-card">
-                <h3>{{ stage }}</h3>
-                <p>{{ info.description }}</p>
-                <h4>النقاط الرئيسية:</h4>
-                <ul>
-                    {% for point in info.key_points %}
-                    <li>{{ point }}</li>
-                    {% endfor %}
-                </ul>
+        <header class="site-header">
+            <div class="header-content">
+                <h1><i class="fas fa-scale-balanced"></i> التحليل القانوني</h1>
+                <p class="subtitle">تحليل النصوص القانونية باستخدام الذكاء الاصطناعي من Google Gemini</p>
             </div>
-            {% endfor %}
+        </header>
+
+        <!-- API Key Section -->
+        <section class="api-key-section">
+            <div class="section-header">
+                <i class="fas fa-key"></i>
+                <h2>إعداد مفتاح API</h2>
+            </div>
+            <div class="api-key-input">
+                <div class="input-group">
+                    <label for="apiKey">
+                        <i class="fas fa-lock"></i>
+                        مفتاح API:
+                    </label>
+                    <input type="password" id="apiKey" placeholder="أدخل مفتاح API الخاص بك">
+                </div>
+                <div class="button-group">
+                    <button id="saveApiKey" class="btn primary">
+                        <i class="fas fa-save"></i>
+                        حفظ المفتاح
+                    </button>
+                    <a href="https://aistudio.google.com/apikey" target="_blank" class="btn secondary">
+                        <i class="fas fa-external-link-alt"></i>
+                        الحصول على مفتاح API
+                    </a>
+                </div>
+            </div>
+            <div id="apiKeyStatus" class="api-key-status"></div>
+        </section>
+
+        <!-- Error Message Section -->
+        <div id="error" class="error-message" style="display: none;">
+            <i class="fas fa-exclamation-circle"></i>
+            <span class="error-text"></span>
         </div>
 
-        <h2>تحليل نص قانوني</h2>
-        <textarea id="textInput" placeholder="أدخل النص القانوني هنا..."></textarea>
-        <button id="analyzeButton" onclick="analyzeText()">تحليل</button>
-        
-        <div class="progress-bar">
-            <div id="progress" class="progress"></div>
+        <!-- Input Section -->
+        <section class="input-section">
+            <div class="section-header">
+                <i class="fas fa-file-alt"></i>
+                <h2>النص القانوني</h2>
+            </div>
+            <div class="input-container">
+                <textarea id="textInput" placeholder="أدخل النص القانوني هنا للتحليل..."></textarea>
+                <button id="analyzeButton" class="btn primary">
+                    <i class="fas fa-microscope"></i>
+                    تحليل النص
+                </button>
+            </div>
+        </section>
+
+        <!-- Progress Section -->
+        <div class="progress-section">
+            <div class="progress-header">
+                <i class="fas fa-tasks"></i>
+                <h2>تقدم التحليل</h2>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar"></div>
+                <div id="progress-text">0%</div>
+            </div>
         </div>
-        
-        <div id="loading" class="loading">
-            جاري التحليل... يرجى الانتظار
-        </div>
-        
-        <div id="result"></div>
+
+        <!-- Stages Section -->
+        <section class="stages-section">
+            <div class="section-header">
+                <i class="fas fa-list-ol"></i>
+                <h2>مراحل التحليل القانوني</h2>
+            </div>
+            <div class="stages-grid">
+                {% for stage_name, stage_info in stages.items() %}
+                <div class="stage-card" data-stage="{{ loop.index0 }}">
+                    <div class="stage-header">
+                        <i class="fas fa-gavel"></i>
+                        <h3>{{ stage_name }}</h3>
+                    </div>
+                    <div class="stage-content">
+                        <div class="stage-description">
+                            <h4>الوصف:</h4>
+                            <p>{{ stage_info.description }}</p>
+                        </div>
+                        <div class="stage-result"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
     </div>
 
-    <!-- Pass stages data to JavaScript -->
     <script id="stages-data" type="application/json">
-        {{ stages|tojson|safe }}
+        {{ stages | tojson | safe }}
     </script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>

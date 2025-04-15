@@ -46,17 +46,6 @@ logger.addHandler(ch)
 # Load environment variables
 load_dotenv()
 
-# Get API key
-GEMINI_API_KEY = os.getenv('GOOGLE_API_KEY')
-if not GEMINI_API_KEY:
-    logger.error("API key not found in .env file")
-    raise ValueError("الرجاء تعيين GOOGLE_API_KEY في ملف .env")
-
-logger.info(f"API Key found: {GEMINI_API_KEY[:5]}...{GEMINI_API_KEY[-5:]}")
-
-# Configure Gemini API
-genai.configure(api_key=GEMINI_API_KEY)
-
 # Initialize Flask app
 app = Flask(__name__)
 
@@ -78,6 +67,13 @@ STAGES = [
 
 # Check if running on Render
 IS_RENDER = os.environ.get('RENDER', False)
+
+def get_api_key():
+    """Get API key from request headers or environment variable"""
+    api_key = request.headers.get('X-API-Key')
+    if api_key:
+        return api_key
+    return os.getenv('GOOGLE_API_KEY')
 
 def verify_and_enhance_analysis(model, stage, analysis, text):
     """Verify and enhance the analysis for accuracy and completeness"""
@@ -233,25 +229,89 @@ def index():
     logger.info("📄 تم تحميل الصفحة الرئيسية")
     return render_template('index.html', stages=STAGES_DETAILS)
 
-@app.route('/analyze', methods=['GET', 'POST'])
+@app.route('/api', methods=['GET'])
+def api_info():
+    """API information and instructions endpoint"""
+    api_info = {
+        "name": "Legal Analysis API",
+        "version": "1.0",
+        "description": "API for legal text analysis using Google's Gemini AI",
+        "endpoints": {
+            "/analyze": {
+                "method": "POST",
+                "description": "Analyze legal text through 12 stages",
+                "parameters": {
+                    "text": "The legal text to analyze",
+                    "stage": "Stage index (0-11) to analyze"
+                },
+                "headers": {
+                    "X-API-Key": "Your Google API key"
+                },
+                "response": "Server-sent events (SSE) with analysis results"
+            }
+        },
+        "instructions": [
+            "1. Get a Google API key from the Google AI Studio",
+            "2. Send your API key in the X-API-Key header",
+            "3. Send a POST request to /analyze with your text and stage",
+            "4. Process the server-sent events to get analysis results"
+        ],
+        "example": {
+            "request": {
+                "url": "/analyze",
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "X-API-Key": "your-api-key-here"
+                },
+                "body": {
+                    "text": "نص قانوني للتحليل...",
+                    "stage": 0
+                }
+            },
+            "response": {
+                "data": {
+                    "stage": "المرحلة الأولى: تحديد المشكلة القانونية",
+                    "description": "تحديد وتوضيح المشكلة القانونية الرئيسية في النص",
+                    "key_points": ["نقطة 1", "نقطة 2", "نقطة 3"],
+                    "analysis": "تحليل النص...",
+                    "status": "completed",
+                    "stage_index": 0
+                }
+            }
+        }
+    }
+    return jsonify(api_info)
+
+@app.route('/analyze', methods=['POST'])
 def analyze():
-    if request.method == 'GET':
-        text = request.args.get('text', '')
-        stage_index = int(request.args.get('stage', 0))
-    else:
-        text = request.json.get('text', '')
-        stage_index = request.json.get('stage', 0)
-    
-    if not text:
-        logger.warning("⚠️ لم يتم تقديم نص للتحليل")
-        return jsonify({'error': 'No text provided'}), 400
-    
-    if stage_index < 0 or stage_index >= len(STAGES):
-        logger.warning("⚠️ رقم مرحلة غير صحيح")
-        return jsonify({'error': 'Invalid stage number'}), 400
-    
-    logger.info(f"🔄 بدء طلب تحليل جديد للمرحلة {stage_index + 1}")
-    return Response(generate_analysis(text, stage_index), mimetype='text/event-stream')
+    try:
+        # Get API key
+        api_key = get_api_key()
+        if not api_key:
+            return jsonify({'error': 'API key is required'}), 401
+
+        # Configure Gemini API with the provided key
+        genai.configure(api_key=api_key)
+
+        # Get request data
+        data = request.get_json()
+        text = data.get('text', '')
+        stage_index = data.get('stage', 0)
+
+        if not text:
+            return jsonify({'error': 'No text provided'}), 400
+
+        if stage_index < 0 or stage_index >= len(STAGES):
+            logger.warning("⚠️ رقم مرحلة غير صحيح")
+            return jsonify({'error': 'Invalid stage number'}), 400
+        
+        logger.info(f"🔄 بدء طلب تحليل جديد للمرحلة {stage_index + 1}")
+        return Response(generate_analysis(text, stage_index), mimetype='text/event-stream')
+
+    except Exception as e:
+        logger.error(f"Error in analyze endpoint: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     logger.info("🌐 بدء تشغيل تطبيق Flask...")

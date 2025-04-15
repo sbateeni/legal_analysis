@@ -8,8 +8,18 @@ const maxRetries = 3;
 const textInput = document.getElementById('textInput');
 const analyzeButton = document.getElementById('analyzeButton');
 const progressBar = document.getElementById('progress');
+const progressText = document.getElementById('progress-text');
 const loadingElement = document.getElementById('loading');
+const errorElement = document.getElementById('error');
 const resultElement = document.getElementById('result');
+const stageCards = document.querySelectorAll('.stage-card');
+
+// API Key Management
+const apiKeyInput = document.getElementById('apiKey');
+const saveApiKeyButton = document.getElementById('saveApiKey');
+const apiKeyStatus = document.getElementById('apiKeyStatus');
+const legalText = document.getElementById('textInput');
+const analyzeBtn = document.getElementById('analyzeBtn');
 
 // Initialize stages data
 let stagesData = {};
@@ -23,36 +33,117 @@ try {
     stagesData = {};
 }
 
-function updateProgress() {
-    const progress = (currentStage / totalStages) * 100;
-    progressBar.style.width = `${progress}%`;
+// Load saved API key on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadSavedApiKey();
+    
+    // Add event listeners
+    if (analyzeButton) {
+        analyzeButton.addEventListener('click', analyzeText);
+    }
+    
+    if (saveApiKeyButton) {
+        saveApiKeyButton.addEventListener('click', saveApiKey);
+    }
+});
+
+// API Key Management
+function loadSavedApiKey() {
+    const savedApiKey = localStorage.getItem('apiKey');
+    if (savedApiKey && apiKeyInput) {
+        apiKeyInput.value = savedApiKey;
+        showApiKeyStatus('تم تحميل مفتاح API بنجاح', 'success');
+    }
 }
 
-// Function to analyze text
+function saveApiKey() {
+    if (!apiKeyInput) return;
+    
+    const apiKey = apiKeyInput.value.trim();
+    if (!apiKey) {
+        showApiKeyStatus('الرجاء إدخال مفتاح API', 'error');
+        return;
+    }
+    
+    localStorage.setItem('apiKey', apiKey);
+    showApiKeyStatus('تم حفظ مفتاح API بنجاح', 'success');
+}
+
+function showApiKeyStatus(message, type) {
+    if (!apiKeyStatus) return;
+    
+    apiKeyStatus.textContent = message;
+    apiKeyStatus.className = 'api-key-status ' + type;
+    
+    // Hide status after 3 seconds
+    setTimeout(() => {
+        apiKeyStatus.textContent = '';
+        apiKeyStatus.className = 'api-key-status';
+    }, 3000);
+}
+
+function getApiKey() {
+    return localStorage.getItem('apiKey');
+}
+
+function showError(message) {
+    if (!errorElement) return;
+    
+    errorElement.style.display = 'flex';
+    errorElement.querySelector('.error-text').textContent = message;
+    
+    // Hide error after 5 seconds
+    setTimeout(() => {
+        errorElement.style.display = 'none';
+    }, 5000);
+}
+
+function updateProgress(currentStage) {
+    const totalStages = 12; // Total number of stages
+    const progress = (currentStage / totalStages) * 100;
+    
+    if (progressBar) {
+        progressBar.style.setProperty('--progress', `${progress}%`);
+    }
+    
+    if (progressText) {
+        progressText.textContent = `${Math.round(progress)}%`;
+    }
+}
+
 async function analyzeText() {
-    const text = textInput.value.trim();
-    if (!text) {
-        alert('الرجاء إدخال نص للتحليل');
+    const apiKey = getApiKey();
+    if (!apiKey) {
+        showError('الرجاء إدخال مفتاح API أولاً');
         return;
     }
 
-    // Reset UI
-    resultElement.innerHTML = '';
-    progressBar.style.width = '0%';
-    loadingElement.style.display = 'block';
-    analyzeButton.disabled = true;
-    currentStage = 0;
-    retryCount = 0;
+    if (!textInput) {
+        showError('لم يتم العثور على حقل إدخال النص');
+        return;
+    }
 
-    // Start analyzing stages one by one
-    await analyzeNextStage(text);
+    const text = textInput.value.trim();
+    if (!text) {
+        showError('الرجاء إدخال النص القانوني للتحليل');
+        return;
+    }
+
+    // Reset progress
+    currentStage = 0;
+    updateProgress(currentStage);
+    
+    // Clear previous results
+    document.querySelectorAll('.stage-card .result').forEach(el => {
+        el.textContent = '';
+    });
+
+    // Start analysis
+    analyzeNextStage(text, apiKey);
 }
 
-async function analyzeNextStage(text) {
-    if (currentStage >= totalStages) {
-        // All stages completed
-        loadingElement.style.display = 'none';
-        analyzeButton.disabled = false;
+async function analyzeNextStage(text, apiKey) {
+    if (currentStage >= 12) {
         return;
     }
 
@@ -61,8 +152,95 @@ async function analyzeNextStage(text) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-API-Key': apiKey
             },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
+                text: text,
+                stage: currentStage
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Update stage card with result
+        const stageCard = document.querySelector(`.stage-card[data-stage="${currentStage}"]`);
+        if (stageCard) {
+            const resultElement = stageCard.querySelector('.stage-result');
+            if (resultElement) {
+                resultElement.textContent = data.result;
+            }
+        }
+
+        // Update progress
+        currentStage++;
+        updateProgress(currentStage);
+
+        // Continue with next stage after a short delay
+        setTimeout(() => {
+            analyzeNextStage(text, apiKey);
+        }, 1000);
+
+    } catch (error) {
+        showError('حدث خطأ أثناء التحليل: ' + error.message);
+    }
+}
+
+// Show error message
+function showError(message) {
+    if (errorElement) {
+        errorElement.textContent = message;
+        errorElement.style.display = 'block';
+        setTimeout(() => {
+            errorElement.style.display = 'none';
+        }, 5000);
+    }
+}
+
+// Analyze text
+analyzeButton.addEventListener('click', async () => {
+    if (!checkApiKey()) return;
+
+    const text = textInput.value.trim();
+    if (!text) {
+        showError('الرجاء إدخال نص قانوني للتحليل');
+        return;
+    }
+
+    // Reset UI
+    currentStage = 0;
+    if (errorElement) errorElement.style.display = 'none';
+    if (loadingElement) loadingElement.style.display = 'block';
+    progressBar.style.setProperty('--progress', '0%');
+    progressText.textContent = '0%';
+    
+    stageCards.forEach(card => {
+        const content = card.querySelector('.stage-content');
+        if (content) content.innerHTML = '';
+    });
+
+    // Start analysis
+    await analyzeNextStage(text);
+});
+
+// Analyze next stage
+async function analyzeNextStage(text) {
+    if (currentStage >= totalStages) {
+        loadingElement.style.display = 'none';
+        return;
+    }
+
+    try {
+        const response = await fetch('/analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': getApiKey()
+            },
+            body: JSON.stringify({
                 text: text,
                 stage: currentStage
             })
@@ -74,74 +252,78 @@ async function analyzeNextStage(text) {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let buffer = '';
 
         while (true) {
             const { value, done } = await reader.read();
             if (done) break;
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
 
             for (const line of lines) {
                 if (line.startsWith('data: ')) {
-                    try {
-                        const data = JSON.parse(line.slice(6));
-                        updateUI(data);
-                        
-                        // If this stage is completed, move to the next one
-                        if (data.stage_index === currentStage && data.status === 'completed') {
-                            currentStage++;
-                            retryCount = 0; // Reset retry count for next stage
-                            updateProgress();
-                            // Add a small delay before starting the next stage
-                            setTimeout(() => analyzeNextStage(text), 1000);
-                        } else if (data.stage_index === currentStage && data.status === 'error') {
-                            // If there's an error, retry if we haven't exceeded max retries
-                            if (retryCount < maxRetries) {
-                                retryCount++;
-                                console.log(`Retrying stage ${currentStage + 1} (attempt ${retryCount}/${maxRetries})...`);
-                                // Add a delay before retrying
-                                setTimeout(() => analyzeNextStage(text), 2000);
-                            } else {
-                                // If we've exceeded max retries, move to the next stage
-                                console.log(`Max retries exceeded for stage ${currentStage + 1}, moving to next stage`);
-                                currentStage++;
-                                retryCount = 0;
-                                updateProgress();
-                                setTimeout(() => analyzeNextStage(text), 1000);
-                            }
-                        }
-                    } catch (e) {
-                        console.error('Error parsing JSON:', e);
-                    }
+                    const data = JSON.parse(line.slice(6));
+                    updateStageCard(data);
                 }
             }
         }
-    } catch (error) {
-        console.error('Error:', error);
-        
-        // If there's an error, retry if we haven't exceeded max retries
-        if (retryCount < maxRetries) {
-            retryCount++;
-            console.log(`Retrying stage ${currentStage + 1} (attempt ${retryCount}/${maxRetries})...`);
-            // Add a delay before retrying
-            setTimeout(() => analyzeNextStage(text), 2000);
-        } else {
-            // If we've exceeded max retries, move to the next stage
-            console.log(`Max retries exceeded for stage ${currentStage + 1}, moving to next stage`);
-            resultElement.innerHTML += `
-                <div class="error-message">
-                    <div class="error-icon">❌</div>
-                    <div class="error-text">حدث خطأ أثناء تحليل المرحلة ${currentStage + 1}: ${error.message}</div>
-                </div>`;
-            currentStage++;
-            retryCount = 0;
-            updateProgress();
+
+        // Update progress
+        currentStage++;
+        updateProgress(currentStage);
+
+        // Add delay before next stage
+        if (currentStage < totalStages) {
             setTimeout(() => analyzeNextStage(text), 1000);
+        } else {
+            loadingElement.style.display = 'none';
         }
+
+    } catch (err) {
+        console.error('Error:', err);
+        showError('حدث خطأ أثناء التحليل. الرجاء المحاولة مرة أخرى.');
+        loadingElement.style.display = 'none';
     }
+}
+
+// Update stage card with analysis
+function updateStageCard(data) {
+    // Find the card with matching stage title
+    const stageTitle = data.stage;
+    const card = Array.from(stageCards).find(card => 
+        card.querySelector('h3').textContent === stageTitle
+    );
+    
+    if (!card) {
+        console.error(`Card not found for stage: ${stageTitle}`);
+        return;
+    }
+
+    const content = card.querySelector('.stage-content');
+    content.innerHTML = `
+        <div class="stage-result">
+            <div class="stage-header">
+                <h4>${data.stage}</h4>
+                <span class="stage-status ${data.status}">${data.status === 'completed' ? 'مكتمل' : 'خطأ'}</span>
+            </div>
+            <div class="stage-body">
+                <div class="stage-description">
+                    <h5>الوصف:</h5>
+                    <p>${data.description}</p>
+                </div>
+                <div class="key-points">
+                    <h5>النقاط الرئيسية:</h5>
+                    <ul>
+                        ${data.key_points.map(point => `<li>${point}</li>`).join('')}
+                    </ul>
+                </div>
+                <div class="analysis-section">
+                    <h5>التحليل:</h5>
+                    <p>${data.analysis}</p>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 // Function to update UI with analysis results
@@ -225,4 +407,14 @@ function formatAnalysisText(text) {
         // Regular paragraph
         return `<p>${p.trim()}</p>`;
     }).join('');
+}
+
+// Check if API key exists
+function checkApiKey() {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+        showApiKeyStatus('الرجاء إدخال مفتاح API', 'error');
+        return false;
+    }
+    return true;
 } 
