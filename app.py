@@ -123,6 +123,7 @@ def generate_analysis(text, stage_index):
         logger.info("⚙️ تهيئة نموذج Gemini...")
         model = genai.GenerativeModel('models/gemini-2.0-flash-001')
         
+        # تحليل المرحلة الحالية فقط
         stage = STAGES[stage_index]
         try:
             logger.info(f"\n📊 المرحلة {stage_index + 1}/12: {stage}")
@@ -197,6 +198,11 @@ def generate_analysis(text, stage_index):
             
             # Stream the result for this stage
             yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
+            
+            # انتظار 5 ثواني قبل الانتقال للمرحلة التالية
+            if stage_index < len(STAGES) - 1:
+                logger.info("⏳ انتظار 5 ثواني قبل الانتقال للمرحلة التالية...")
+                time.sleep(5)
             
         except Exception as e:
             logger.error(f"❌ خطأ في معالجة المرحلة {stage}: {str(e)}")
@@ -307,7 +313,24 @@ def analyze():
             return jsonify({'error': 'Invalid stage number'}), 400
         
         logger.info(f"🔄 بدء طلب تحليل جديد للمرحلة {stage_index + 1}")
-        return Response(generate_analysis(text, stage_index), mimetype='text/event-stream')
+        
+        def generate():
+            try:
+                # إرسال إشعار ببدء التحليل
+                yield f"data: {json.dumps({'status': 'started', 'stage_index': stage_index, 'total_stages': len(STAGES)}, ensure_ascii=False)}\n\n"
+                
+                # تحليل المرحلة الحالية
+                for result in generate_analysis(text, stage_index):
+                    yield result
+                    
+                # إرسال إشعار بانتهاء التحليل
+                yield f"data: {json.dumps({'status': 'completed', 'stage_index': stage_index, 'total_stages': len(STAGES)}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                logger.error(f"Error in generate: {str(e)}")
+                error_data = json.dumps({'error': str(e), 'status': 'error'}, ensure_ascii=False)
+                yield f"data: {error_data}\n\n"
+        
+        return Response(generate(), mimetype='text/event-stream')
 
     except Exception as e:
         logger.error(f"Error in analyze endpoint: {str(e)}")
