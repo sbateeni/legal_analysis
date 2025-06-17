@@ -1,5 +1,5 @@
 import logging
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, session
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
@@ -7,6 +7,7 @@ import traceback
 import json
 from analysis_stages import STAGES_DETAILS, get_stage_prompt
 import time
+import secrets
 
 # Configure logging with colors
 class ColoredFormatter(logging.Formatter):
@@ -49,6 +50,9 @@ load_dotenv()
 # Initialize Flask app
 app = Flask(__name__)
 
+# إضافة مفتاح سري للتطبيق
+app.secret_key = secrets.token_hex(16)
+
 # Define the 12 stages in order
 STAGES = [
     "المرحلة الأولى: تحديد المشكلة القانونية",
@@ -69,11 +73,20 @@ STAGES = [
 IS_RENDER = os.environ.get('RENDER', False)
 
 def get_api_key():
-    """Get API key from request headers or environment variable"""
-    api_key = request.headers.get('X-API-Key')
-    if api_key:
-        return api_key
-    return os.getenv('GOOGLE_API_KEY')
+    """Get API key from session or environment variable"""
+    # أولاً، نتحقق من وجود المفتاح في الجلسة
+    if 'api_key' in session:
+        return session['api_key']
+    
+    # إذا لم يكن موجوداً في الجلسة، نتحقق من المتغير البيئي
+    env_api_key = os.getenv('GOOGLE_API_KEY')
+    if env_api_key:
+        # إذا كان هناك مفتاح في المتغير البيئي، نحفظه في الجلسة
+        session['api_key'] = env_api_key
+        return env_api_key
+    
+    # إذا لم يكن هناك مفتاح في الطلب، نرجع None
+    return None
 
 def verify_and_enhance_analysis(model, stage, analysis, text):
     """Verify and enhance the analysis for accuracy and completeness"""
@@ -334,6 +347,34 @@ def analyze():
 
     except Exception as e:
         logger.error(f"Error in analyze endpoint: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/set_api_key', methods=['POST'])
+def set_api_key():
+    """Set API key in session"""
+    try:
+        data = request.get_json()
+        api_key = data.get('api_key')
+        
+        if not api_key:
+            return jsonify({'error': 'API key is required'}), 400
+            
+        # حفظ المفتاح في الجلسة
+        session['api_key'] = api_key
+        return jsonify({'status': 'success', 'message': 'API key saved successfully'})
+        
+    except Exception as e:
+        logger.error(f"Error setting API key: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/clear_api_key', methods=['POST'])
+def clear_api_key():
+    """Clear API key from session"""
+    try:
+        session.pop('api_key', None)
+        return jsonify({'status': 'success', 'message': 'API key cleared successfully'})
+    except Exception as e:
+        logger.error(f"Error clearing API key: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
