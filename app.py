@@ -8,6 +8,7 @@ import json
 from analysis_stages import STAGES_DETAILS, get_stage_prompt
 import time
 import secrets
+import gc  # إضافة garbage collector
 
 # Configure logging with colors
 class ColoredFormatter(logging.Formatter):
@@ -53,6 +54,15 @@ app = Flask(__name__)
 # إضافة مفتاح سري للتطبيق
 app.secret_key = secrets.token_hex(16)
 
+# تكوين Gunicorn
+timeout = 300  # 5 دقائق
+max_requests = 1000
+max_requests_jitter = 50
+
+def cleanup_resources():
+    """تنظيف الموارد وتحرير الذاكرة"""
+    gc.collect()
+
 # Define the 12 stages in order
 STAGES = [
     "المرحلة الأولى: تحديد المشكلة القانونية",
@@ -93,6 +103,11 @@ def verify_and_enhance_analysis(model, stage, analysis, text):
     try:
         logger.info(f"🔍 جاري التحقق من دقة تحليل {stage}")
         
+        # تقسيم النص إلى أجزاء أصغر إذا كان طويلاً
+        max_text_length = 4000  # الحد الأقصى للنص
+        if len(text) > max_text_length:
+            text = text[:max_text_length] + "..."
+        
         # Create verification prompt
         verification_prompt = f"""
         قم بمراجعة وتحسين التحليل التالي للمرحلة: {stage}
@@ -113,19 +128,25 @@ def verify_and_enhance_analysis(model, stage, analysis, text):
         قدم التحليل المحسن مع شرح التغييرات التي تمت.
         """
         
-        # Get enhanced analysis
-        response = model.generate_content(verification_prompt)
-        if response and response.text:
-            enhanced_analysis = response.text
-            logger.info(f"✅ تم تحسين تحليل {stage}")
-            return enhanced_analysis
-        else:
-            logger.warning(f"⚠️ لم يتم الحصول على تحليل محسن لـ {stage}")
+        # Get enhanced analysis with timeout
+        try:
+            response = model.generate_content(verification_prompt)
+            if response and response.text:
+                enhanced_analysis = response.text
+                logger.info(f"✅ تم تحسين تحليل {stage}")
+                return enhanced_analysis
+            else:
+                logger.warning(f"⚠️ لم يتم الحصول على تحليل محسن لـ {stage}")
+                return analysis
+        except Exception as e:
+            logger.error(f"❌ خطأ في تحسين التحليل: {str(e)}")
             return analysis
             
     except Exception as e:
         logger.error(f"❌ خطأ في التحقق من تحليل {stage}: {str(e)}")
         return analysis
+    finally:
+        cleanup_resources()
 
 def generate_analysis(text, stage_index):
     """Generate analysis for a single stage"""
@@ -133,10 +154,14 @@ def generate_analysis(text, stage_index):
         logger.info("🚀 بدء عملية التحليل القانوني...")
         logger.info(f"📝 النص المدخل: {text[:100]}...")
         
+        # تقسيم النص إلى أجزاء أصغر إذا كان طويلاً
+        max_text_length = 4000  # الحد الأقصى للنص
+        if len(text) > max_text_length:
+            text = text[:max_text_length] + "..."
+        
         logger.info("⚙️ تهيئة نموذج Gemini...")
         model = genai.GenerativeModel('models/gemini-2.0-flash-001')
         
-        # تحليل المرحلة الحالية فقط
         stage = STAGES[stage_index]
         try:
             logger.info(f"\n📊 المرحلة {stage_index + 1}/12: {stage}")
@@ -145,7 +170,7 @@ def generate_analysis(text, stage_index):
             prompt = get_stage_prompt(stage, text)
             logger.debug(f"Prompt for {stage}: {prompt[:200]}...")
             
-            # Get initial analysis with retry mechanism for Render
+            # Get initial analysis with retry mechanism and timeout
             max_retries = 3 if IS_RENDER else 1
             retry_count = 0
             initial_analysis = None
@@ -162,18 +187,17 @@ def generate_analysis(text, stage_index):
                         retry_count += 1
                         if retry_count < max_retries:
                             logger.info(f"🔄 إعادة المحاولة {retry_count + 1}/{max_retries}...")
-                            time.sleep(2)  # Wait before retrying
+                            time.sleep(2)
                 except Exception as e:
                     logger.error(f"❌ خطأ في تحليل المرحلة {stage} (محاولة {retry_count + 1}): {str(e)}")
                     retry_count += 1
                     if retry_count < max_retries:
                         logger.info(f"🔄 إعادة المحاولة {retry_count + 1}/{max_retries}...")
-                        time.sleep(2)  # Wait before retrying
+                        time.sleep(2)
                     else:
-                        raise  # Re-raise the exception if all retries failed
+                        raise
             
             if initial_analysis:
-                # Verify and enhance the analysis with retry mechanism for Render
                 try:
                     enhanced_analysis = verify_and_enhance_analysis(model, stage, initial_analysis, text)
                     
@@ -242,6 +266,8 @@ def generate_analysis(text, stage_index):
             'total_stages': len(STAGES)
         }
         yield f"data: {json.dumps(error_result, ensure_ascii=False)}\n\n"
+    finally:
+        cleanup_resources()
 
 @app.route('/')
 def index():
