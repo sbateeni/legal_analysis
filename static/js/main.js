@@ -47,55 +47,319 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// API Key Management
-function loadSavedApiKey() {
-    const savedApiKey = localStorage.getItem('apiKey');
-    if (savedApiKey && apiKeyInput) {
-        apiKeyInput.value = savedApiKey;
-        showApiKeyStatus('تم تحميل مفتاح API بنجاح', 'success');
+function showError(message) {
+    const apiError = document.getElementById('apiError');
+    if (apiError) {
+        apiError.textContent = message;
+        apiError.style.display = 'block';
+        apiError.className = 'text-red-500';
+    } else {
+        console.error('Error element not found:', message);
     }
+}
+
+function showSuccess(message) {
+    const apiStatus = document.getElementById('apiStatus');
+    if (apiStatus) {
+        apiStatus.textContent = message;
+        apiStatus.className = 'text-green-500';
+    } else {
+        console.error('Status element not found:', message);
+    }
+}
+
+// دالة لاسترجاع المفتاح المحفوظ
+function loadSavedApiKey() {
+    const savedKey = localStorage.getItem('apiKey');
+    if (savedKey) {
+        document.getElementById('apiKey').value = savedKey;
+        // التحقق من صحة المفتاح المحفوظ
+        verifySavedApiKey(savedKey);
+    }
+}
+
+// دالة للتحقق من صحة المفتاح المحفوظ
+function verifySavedApiKey(apiKey) {
+    fetch('/test_api', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ api_key: apiKey })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showSuccess('تم استرجاع مفتاح API المحفوظ');
+            const apiStatus = document.getElementById('apiStatus');
+            if (apiStatus) {
+                apiStatus.textContent = '✅ مفتاح API صالح';
+                apiStatus.className = 'text-green-500';
+            }
+            // تفعيل زر التحليل
+            const analyzeButton = document.getElementById('analyzeButton');
+            if (analyzeButton) {
+                analyzeButton.disabled = false;
+            }
+        } else {
+            // إذا كان المفتاح غير صالح، قم بحذفه
+            localStorage.removeItem('apiKey');
+            showError('المفتاح المحفوظ غير صالح');
+        }
+    })
+    .catch(error => {
+        console.error('Error verifying saved API key:', error);
+        localStorage.removeItem('apiKey');
+    });
 }
 
 function saveApiKey() {
-    if (!apiKeyInput) return;
+    const apiKey = document.getElementById('apiKey').value;
+    const apiStatus = document.getElementById('apiStatus');
+    const apiError = document.getElementById('apiError');
     
-    const apiKey = apiKeyInput.value.trim();
     if (!apiKey) {
-        showApiKeyStatus('الرجاء إدخال مفتاح API', 'error');
+        showError('الرجاء إدخال مفتاح API');
         return;
     }
-    
-    localStorage.setItem('apiKey', apiKey);
-    showApiKeyStatus('تم حفظ مفتاح API بنجاح', 'success');
+
+    // إظهار حالة التحميل
+    if (apiStatus) {
+        apiStatus.textContent = 'جاري التحقق من المفتاح...';
+        apiStatus.className = 'text-blue-500';
+    }
+
+    // إخفاء أي رسائل خطأ سابقة
+    if (apiError) {
+        apiError.style.display = 'none';
+    }
+
+    // إرسال طلب التحقق من المفتاح
+    fetch('/test_api', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ api_key: apiKey })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // إذا كان المفتاح صالحاً، قم بحفظه
+            return fetch('/set_api_key', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ api_key: apiKey })
+            });
+        } else {
+            throw new Error(data.error || 'فشل التحقق من المفتاح');
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // حفظ المفتاح في localStorage
+            localStorage.setItem('apiKey', apiKey);
+            showSuccess('تم حفظ مفتاح API بنجاح');
+            if (apiStatus) {
+                apiStatus.textContent = '✅ مفتاح API صالح';
+                apiStatus.className = 'text-green-500';
+            }
+            // تفعيل زر التحليل
+            const analyzeButton = document.getElementById('analyzeButton');
+            if (analyzeButton) {
+                analyzeButton.disabled = false;
+            }
+        } else {
+            throw new Error(data.error || 'فشل حفظ المفتاح');
+        }
+    })
+    .catch(error => {
+        showError(error.message || 'حدث خطأ في الاتصال بالخادم');
+        if (apiStatus) {
+            apiStatus.textContent = '❌ مفتاح API غير صالح';
+            apiStatus.className = 'text-red-500';
+        }
+        // تعطيل زر التحليل
+        const analyzeButton = document.getElementById('analyzeButton');
+        if (analyzeButton) {
+            analyzeButton.disabled = true;
+        }
+    });
 }
 
-function showApiKeyStatus(message, type) {
-    if (!apiKeyStatus) return;
+function testApiKey() {
+    const apiKey = document.getElementById('apiKey').value;
+    const apiStatus = document.getElementById('apiStatus');
+    const apiError = document.getElementById('apiError');
     
-    apiKeyStatus.textContent = message;
-    apiKeyStatus.className = 'api-key-status ' + type;
-    
-    // Hide status after 3 seconds
-    setTimeout(() => {
-        apiKeyStatus.textContent = '';
-        apiKeyStatus.className = 'api-key-status';
-    }, 3000);
+    if (!apiKey) {
+        showError('الرجاء إدخال مفتاح API');
+        return;
+    }
+
+    // إظهار حالة التحميل
+    if (apiStatus) {
+        apiStatus.textContent = 'جاري التحقق من المفتاح...';
+        apiStatus.className = 'text-blue-500';
+    }
+
+    // إخفاء أي رسائل خطأ سابقة
+    if (apiError) {
+        apiError.style.display = 'none';
+    }
+
+    // إرسال طلب التحقق من المفتاح
+    fetch('/test_api', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ api_key: apiKey })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // حفظ المفتاح في localStorage
+            localStorage.setItem('apiKey', apiKey);
+            showSuccess('تم التحقق من صحة مفتاح API');
+            if (apiStatus) {
+                apiStatus.textContent = '✅ مفتاح API صالح';
+                apiStatus.className = 'text-green-500';
+            }
+            // تفعيل زر التحليل
+            const analyzeButton = document.getElementById('analyzeButton');
+            if (analyzeButton) {
+                analyzeButton.disabled = false;
+            }
+        } else {
+            throw new Error(data.error || 'فشل التحقق من المفتاح');
+        }
+    })
+    .catch(error => {
+        showError(error.message || 'حدث خطأ في الاتصال بالخادم');
+        if (apiStatus) {
+            apiStatus.textContent = '❌ مفتاح API غير صالح';
+            apiStatus.className = 'text-red-500';
+        }
+        // تعطيل زر التحليل
+        const analyzeButton = document.getElementById('analyzeButton');
+        if (analyzeButton) {
+            analyzeButton.disabled = true;
+        }
+    });
 }
 
-function getApiKey() {
-    return localStorage.getItem('apiKey');
+function analyzeText() {
+    const text = document.getElementById('textInput').value;
+    if (!text) {
+        showError('الرجاء إدخال نص للتحليل');
+        return;
+    }
+    // تعطيل زر التحليل وإظهار حالة التحميل
+    analyzeButton.disabled = true;
+    analyzeButton.textContent = 'جاري التحليل...';
+    if (loadingElement) loadingElement.style.display = 'block';
+    // مسح النتائج السابقة من كل مرحلة
+    document.querySelectorAll('.stage-content').forEach(el => {
+        el.innerHTML = '';
+    });
+    // إعادة تعيين التقدم
+    currentStage = 0;
+    updateProgress(0);
+    // بدء التحليل التسلسلي
+    analyzeNextStageSequential(text, 0);
 }
 
-function showError(message) {
-    if (!errorElement) return;
-    
-    errorElement.style.display = 'flex';
-    errorElement.querySelector('.error-text').textContent = message;
-    
-    // Hide error after 5 seconds
-    setTimeout(() => {
-        errorElement.style.display = 'none';
-    }, 5000);
+function analyzeNextStageSequential(text, stageIdx) {
+    if (stageIdx >= totalStages) {
+        if (loadingElement) loadingElement.style.display = 'none';
+        analyzeButton.disabled = false;
+        analyzeButton.textContent = 'تحليل النص';
+        return;
+    }
+    // جلب مفتاح API
+    const apiKey = localStorage.getItem('apiKey') || '';
+    fetch('/analyze', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': apiKey
+        },
+        body: JSON.stringify({ text: text, stage: stageIdx })
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('خطأ في الاتصال بالخادم');
+        // SSE: نقرأ الاستجابة كسلسلة أحداث
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        function readChunk() {
+            return reader.read().then(({ value, done }) => {
+                if (done) {
+                    updateProgress(stageIdx + 1);
+                    // بعد انتهاء هذه المرحلة، ننتقل للمرحلة التالية
+                    setTimeout(() => analyzeNextStageSequential(text, stageIdx + 1), 500);
+                    return;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // keep incomplete line
+                lines.forEach(line => {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            updateStageCard(data, stageIdx);
+                        } catch (e) {}
+                    }
+                });
+                return readChunk();
+            });
+        }
+        return readChunk();
+    })
+    .catch(error => {
+        showError('حدث خطأ أثناء التحليل: ' + error.message);
+        if (loadingElement) loadingElement.style.display = 'none';
+        analyzeButton.disabled = false;
+        analyzeButton.textContent = 'تحليل النص';
+    });
+}
+
+function updateStageCard(data, stageIdx) {
+    // ابحث عن البطاقة حسب رقم المرحلة
+    const card = document.querySelector(`.stage-card[data-stage="${stageIdx}"]`);
+    if (!card) return;
+    const content = card.querySelector('.stage-content');
+    if (!content) return;
+    if (data.error) {
+        content.innerHTML = `<div class="error-message">${data.error}</div>`;
+        return;
+    }
+    if (data.analysis) {
+        content.innerHTML = `
+            <div class="stage-result">
+                <div class="stage-header">
+                    <span class="stage-status ${data.status}">${data.status === 'completed' ? 'مكتمل' : 'خطأ'}</span>
+                </div>
+                <div class="stage-body">
+                    <div class="stage-description">
+                        <strong>الوصف:</strong> <span>${data.description}</span>
+                    </div>
+                    <div class="key-points">
+                        <strong>النقاط الرئيسية:</strong>
+                        <ul>${(data.key_points || []).map(point => `<li>${point}</li>`).join('')}</ul>
+                    </div>
+                    <div class="analysis-section">
+                        <strong>التحليل:</strong>
+                        <div>${data.analysis.replace(/\n/g, '<br>')}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
 }
 
 function updateProgress(currentStage) {
@@ -109,37 +373,6 @@ function updateProgress(currentStage) {
     if (progressText) {
         progressText.textContent = `${Math.round(progress)}%`;
     }
-}
-
-async function analyzeText() {
-    const apiKey = getApiKey();
-    if (!apiKey) {
-        showError('الرجاء إدخال مفتاح API أولاً');
-        return;
-    }
-
-    if (!textInput) {
-        showError('لم يتم العثور على حقل إدخال النص');
-        return;
-    }
-
-    const text = textInput.value.trim();
-    if (!text) {
-        showError('الرجاء إدخال النص القانوني للتحليل');
-        return;
-    }
-
-    // Reset progress
-    currentStage = 0;
-    updateProgress(currentStage);
-    
-    // Clear previous results
-    document.querySelectorAll('.stage-card .result').forEach(el => {
-        el.textContent = '';
-    });
-
-    // Start analysis
-    analyzeNextStage(text, apiKey);
 }
 
 async function analyzeNextStage(text, apiKey) {
@@ -284,46 +517,6 @@ async function analyzeNextStage(text) {
         showError('حدث خطأ أثناء التحليل. الرجاء المحاولة مرة أخرى.');
         loadingElement.style.display = 'none';
     }
-}
-
-// Update stage card with analysis
-function updateStageCard(data) {
-    // Find the card with matching stage title
-    const stageTitle = data.stage;
-    const card = Array.from(stageCards).find(card => 
-        card.querySelector('h3').textContent === stageTitle
-    );
-    
-    if (!card) {
-        console.error(`Card not found for stage: ${stageTitle}`);
-        return;
-    }
-
-    const content = card.querySelector('.stage-content');
-    content.innerHTML = `
-        <div class="stage-result">
-            <div class="stage-header">
-                <h4>${data.stage}</h4>
-                <span class="stage-status ${data.status}">${data.status === 'completed' ? 'مكتمل' : 'خطأ'}</span>
-            </div>
-            <div class="stage-body">
-                <div class="stage-description">
-                    <h5>الوصف:</h5>
-                    <p>${data.description}</p>
-                </div>
-                <div class="key-points">
-                    <h5>النقاط الرئيسية:</h5>
-                    <ul>
-                        ${data.key_points.map(point => `<li>${point}</li>`).join('')}
-                    </ul>
-                </div>
-                <div class="analysis-section">
-                    <h5>التحليل:</h5>
-                    <p>${data.analysis}</p>
-                </div>
-            </div>
-        </div>
-    `;
 }
 
 // Function to update UI with analysis results

@@ -84,19 +84,80 @@ IS_RENDER = os.environ.get('RENDER', False)
 
 def get_api_key():
     """Get API key from session or environment variable"""
-    # أولاً، نتحقق من وجود المفتاح في الجلسة
-    if 'api_key' in session:
-        return session['api_key']
-    
-    # إذا لم يكن موجوداً في الجلسة، نتحقق من المتغير البيئي
-    env_api_key = os.getenv('GOOGLE_API_KEY')
-    if env_api_key:
-        # إذا كان هناك مفتاح في المتغير البيئي، نحفظه في الجلسة
-        session['api_key'] = env_api_key
-        return env_api_key
-    
-    # إذا لم يكن هناك مفتاح في الطلب، نرجع None
-    return None
+    try:
+        # أولاً، نتحقق من وجود المفتاح في الجلسة
+        if 'api_key' in session:
+            api_key = session['api_key']
+            logger.info(f"🔑 تم استرجاع مفتاح API من الجلسة: {api_key[:5]}...")
+            # التحقق من صحة المفتاح
+            if not api_key or len(api_key.strip()) == 0:
+                logger.error("❌ مفتاح API فارغ في الجلسة")
+                return None
+            return api_key
+        
+        # إذا لم يكن موجوداً في الجلسة، نتحقق من المتغير البيئي
+        env_api_key = os.getenv('GOOGLE_API_KEY')
+        if env_api_key and len(env_api_key.strip()) > 0:
+            logger.info("🔑 تم استرجاع مفتاح API من المتغير البيئي")
+            # إذا كان هناك مفتاح في المتغير البيئي، نحفظه في الجلسة
+            session['api_key'] = env_api_key
+            return env_api_key
+        
+        logger.error("❌ لم يتم العثور على مفتاح API صالح")
+        return None
+    except Exception as e:
+        logger.error(f"❌ خطأ في الحصول على مفتاح API: {str(e)}")
+        return None
+
+def verify_api_key(api_key):
+    """Verify if the API key is valid"""
+    try:
+        if not api_key or len(api_key.strip()) == 0:
+            logger.error("❌ مفتاح API فارغ")
+            return False
+            
+        # تكوين Gemini مع المفتاح
+        genai.configure(api_key=api_key)
+        
+        try:
+            # محاولة إنشاء نموذج بسيط للتحقق
+            model = genai.GenerativeModel('models/gemini-2.0-flash-001')
+            response = model.generate_content("Test")
+            
+            if response is None:
+                logger.error("❌ فشل في الحصول على استجابة من API")
+                return False
+                
+            return True
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"❌ تفاصيل الخطأ: {error_msg}")
+            
+            if "API_KEY_INVALID" in error_msg:
+                logger.error("❌ مفتاح API غير صالح. يرجى التأكد من صحة المفتاح")
+                logger.error("💡 تلميح: قم بزيارة https://makersuite.google.com/app/apikey للحصول على مفتاح جديد")
+                logger.error("💡 تأكد من نسخ المفتاح بشكل صحيح وعدم وجود مسافات إضافية")
+            elif "API_KEY_EXPIRED" in error_msg:
+                logger.error("❌ مفتاح API منتهي الصلاحية")
+                logger.error("💡 تلميح: قم بإنشاء مفتاح جديد من Google AI Studio")
+            elif "QUOTA_EXCEEDED" in error_msg:
+                logger.error("❌ تم تجاوز الحد المسموح به من الطلبات")
+                logger.error("💡 تلميح: انتظر قليلاً أو قم بترقية حسابك")
+            elif "PERMISSION_DENIED" in error_msg:
+                logger.error("❌ لا يوجد لديك صلاحية لاستخدام هذا المفتاح")
+                logger.error("💡 تلميح: تأكد من تفعيل Gemini API في مشروعك")
+            elif "RESOURCE_EXHAUSTED" in error_msg:
+                logger.error("❌ تم استنفاد موارد API")
+                logger.error("💡 تلميح: انتظر قليلاً أو قم بترقية حسابك")
+            else:
+                logger.error(f"❌ خطأ في التحقق من مفتاح API: {error_msg}")
+                logger.error("💡 تلميح: تأكد من صحة المفتاح وإمكانية الوصول إلى Gemini API")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ خطأ غير متوقع في التحقق من مفتاح API: {str(e)}")
+        logger.error("💡 تلميح: تأكد من صحة المفتاح وإمكانية الوصول إلى Gemini API")
+        return False
 
 def verify_and_enhance_analysis(model, stage, analysis, text):
     """Verify and enhance the analysis for accuracy and completeness"""
@@ -128,7 +189,6 @@ def verify_and_enhance_analysis(model, stage, analysis, text):
         قدم التحليل المحسن مع شرح التغييرات التي تمت.
         """
         
-        # Get enhanced analysis with timeout
         try:
             response = model.generate_content(verification_prompt)
             if response and response.text:
@@ -149,113 +209,92 @@ def verify_and_enhance_analysis(model, stage, analysis, text):
         cleanup_resources()
 
 def generate_analysis(text, stage_index):
-    """Generate analysis for a single stage"""
+    """Generate analysis for a single stage only (no loop)"""
     try:
         logger.info("🚀 بدء عملية التحليل القانوني...")
         logger.info(f"📝 النص المدخل: {text[:100]}...")
-        
+
         # تقسيم النص إلى أجزاء أصغر إذا كان طويلاً
         max_text_length = 4000  # الحد الأقصى للنص
         if len(text) > max_text_length:
             text = text[:max_text_length] + "..."
-        
+
         logger.info("⚙️ تهيئة نموذج Gemini...")
         model = genai.GenerativeModel('models/gemini-2.0-flash-001')
-        
+
+        # تحليل مرحلة واحدة فقط
         stage = STAGES[stage_index]
-        try:
-            logger.info(f"\n📊 المرحلة {stage_index + 1}/12: {stage}")
-            logger.info("🔍 جاري تحليل المرحلة...")
-            
-            prompt = get_stage_prompt(stage, text)
-            logger.debug(f"Prompt for {stage}: {prompt[:200]}...")
-            
-            # Get initial analysis with retry mechanism and timeout
-            max_retries = 3 if IS_RENDER else 1
-            retry_count = 0
-            initial_analysis = None
-            
-            while retry_count < max_retries:
-                try:
-                    response = model.generate_content(prompt)
-                    if response and response.text:
-                        initial_analysis = response.text
-                        logger.info(f"✅ تم اكتمال التحليل الأولي لـ {stage}")
-                        break
-                    else:
-                        logger.warning(f"⚠️ استجابة فارغة للمرحلة: {stage}")
-                        retry_count += 1
-                        if retry_count < max_retries:
-                            logger.info(f"🔄 إعادة المحاولة {retry_count + 1}/{max_retries}...")
-                            time.sleep(2)
-                except Exception as e:
-                    logger.error(f"❌ خطأ في تحليل المرحلة {stage} (محاولة {retry_count + 1}): {str(e)}")
+        logger.info(f"\n📊 المرحلة {stage_index + 1}/12: {stage}")
+        logger.info("🔍 جاري تحليل المرحلة...")
+
+        prompt = get_stage_prompt(stage, text)
+        logger.debug(f"Prompt for {stage}: {prompt[:200]}...")
+
+        # Get initial analysis with retry mechanism and timeout
+        max_retries = 3 if IS_RENDER else 1
+        retry_count = 0
+        initial_analysis = None
+
+        while retry_count < max_retries:
+            try:
+                response = model.generate_content(prompt)
+                if response and response.text:
+                    initial_analysis = response.text
+                    logger.info(f"✅ تم اكتمال التحليل الأولي لـ {stage}")
+                    break
+                else:
+                    logger.warning(f"⚠️ استجابة فارغة للمرحلة: {stage}")
                     retry_count += 1
                     if retry_count < max_retries:
                         logger.info(f"🔄 إعادة المحاولة {retry_count + 1}/{max_retries}...")
                         time.sleep(2)
-                    else:
-                        raise
-            
-            if initial_analysis:
-                try:
-                    enhanced_analysis = verify_and_enhance_analysis(model, stage, initial_analysis, text)
-                    
-                    result = {
-                        'stage': stage,
-                        'description': STAGES_DETAILS[stage]['description'],
-                        'key_points': STAGES_DETAILS[stage]['key_points'],
-                        'analysis': enhanced_analysis,
-                        'status': 'completed',
-                        'stage_index': stage_index,
-                        'total_stages': len(STAGES)
-                    }
-                except Exception as e:
-                    logger.error(f"❌ خطأ في التحقق من تحليل {stage}: {str(e)}")
-                    result = {
-                        'stage': stage,
-                        'description': STAGES_DETAILS[stage]['description'],
-                        'key_points': STAGES_DETAILS[stage]['key_points'],
-                        'analysis': initial_analysis,
-                        'status': 'completed',
-                        'stage_index': stage_index,
-                        'total_stages': len(STAGES)
-                    }
-            else:
-                logger.warning(f"⚠️ فشل جميع محاولات تحليل المرحلة: {stage}")
+            except Exception as e:
+                logger.error(f"❌ خطأ في تحليل المرحلة {stage} (محاولة {retry_count + 1}): {str(e)}")
+                retry_count += 1
+                if retry_count < max_retries:
+                    logger.info(f"🔄 إعادة المحاولة {retry_count + 1}/{max_retries}...")
+                    time.sleep(2)
+                else:
+                    raise
+
+        if initial_analysis:
+            try:
+                enhanced_analysis = verify_and_enhance_analysis(model, stage, initial_analysis, text)
                 result = {
                     'stage': stage,
                     'description': STAGES_DETAILS[stage]['description'],
                     'key_points': STAGES_DETAILS[stage]['key_points'],
-                    'analysis': "لم يتم الحصول على تحليل لهذه المرحلة بعد عدة محاولات",
-                    'status': 'error',
+                    'analysis': enhanced_analysis,
+                    'status': 'completed',
                     'stage_index': stage_index,
                     'total_stages': len(STAGES)
                 }
-            
-            # Stream the result for this stage
-            yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
-            
-            # انتظار 5 ثواني قبل الانتقال للمرحلة التالية
-            if stage_index < len(STAGES) - 1:
-                logger.info("⏳ انتظار 5 ثواني قبل الانتقال للمرحلة التالية...")
-                time.sleep(5)
-            
-        except Exception as e:
-            logger.error(f"❌ خطأ في معالجة المرحلة {stage}: {str(e)}")
-            error_result = {
+            except Exception as e:
+                logger.error(f"❌ خطأ في التحقق من تحليل {stage}: {str(e)}")
+                result = {
+                    'stage': stage,
+                    'description': STAGES_DETAILS[stage]['description'],
+                    'key_points': STAGES_DETAILS[stage]['key_points'],
+                    'analysis': initial_analysis,
+                    'status': 'completed',
+                    'stage_index': stage_index,
+                    'total_stages': len(STAGES)
+                }
+        else:
+            logger.warning(f"⚠️ فشل جميع محاولات تحليل المرحلة: {stage}")
+            result = {
                 'stage': stage,
                 'description': STAGES_DETAILS[stage]['description'],
                 'key_points': STAGES_DETAILS[stage]['key_points'],
-                'analysis': f"حدث خطأ في معالجة هذه المرحلة: {str(e)}",
+                'analysis': "لم يتم الحصول على تحليل لهذه المرحلة بعد عدة محاولات",
                 'status': 'error',
                 'stage_index': stage_index,
                 'total_stages': len(STAGES)
             }
-            yield f"data: {json.dumps(error_result, ensure_ascii=False)}\n\n"
-            
-        logger.info(f"\n✨ تم اكتمال تحليل المرحلة {stage_index + 1} بنجاح!")
-            
+
+        # Stream the result for this stage فقط
+        yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
+
     except Exception as e:
         logger.error(f"❌ خطأ في generate_analysis: {str(e)}")
         logger.error(f"تفاصيل الخطأ: {traceback.format_exc()}")
@@ -293,14 +332,46 @@ def api_info():
                     "X-API-Key": "Your Google API key"
                 },
                 "response": "Server-sent events (SSE) with analysis results"
+            },
+            "/test_api": {
+                "method": "POST",
+                "description": "Test if your API key is valid",
+                "parameters": {
+                    "api_key": "Your Google API key to test"
+                },
+                "response": {
+                    "status": "success/error",
+                    "message": "Result message",
+                    "details": "Detailed information",
+                    "help": "Helpful information if there's an error"
+                }
             }
         },
-        "instructions": [
-            "1. Get a Google API key from the Google AI Studio",
-            "2. Send your API key in the X-API-Key header",
-            "3. Send a POST request to /analyze with your text and stage",
-            "4. Process the server-sent events to get analysis results"
-        ],
+        "api_key_instructions": {
+            "how_to_get": [
+                "1. قم بزيارة Google AI Studio: https://makersuite.google.com/app/apikey",
+                "2. سجل الدخول باستخدام حساب Google الخاص بك",
+                "3. انقر على 'Create API Key'",
+                "4. انسخ المفتاح الجديد"
+            ],
+            "how_to_use": [
+                "1. قم بإرسال المفتاح في رأس الطلب X-API-Key",
+                "2. أو قم بتعيينه في الجلسة باستخدام نقطة النهاية /set_api_key",
+                "3. أو قم بتعيينه في ملف .env كمتغير GOOGLE_API_KEY",
+                "4. يمكنك اختبار المفتاح باستخدام نقطة النهاية /test_api"
+            ],
+            "requirements": [
+                "يجب أن يكون المفتاح صالحاً وغير منتهي الصلاحية",
+                "يجب أن يكون لديك حساب Google مفعل",
+                "يجب أن تكون في منطقة مدعومة من Google AI"
+            ],
+            "troubleshooting": [
+                "إذا كان المفتاح غير صالح، تأكد من نسخه بشكل صحيح",
+                "إذا انتهت صلاحية المفتاح، قم بإنشاء مفتاح جديد",
+                "إذا تجاوزت الحد المسموح به، انتظر أو قم بترقية حسابك",
+                "استخدم نقطة النهاية /test_api لاختبار المفتاح قبل استخدامه"
+            ]
+        },
         "example": {
             "request": {
                 "url": "/analyze",
@@ -334,22 +405,44 @@ def analyze():
         # Get API key
         api_key = get_api_key()
         if not api_key:
-            return jsonify({'error': 'API key is required'}), 401
+            return jsonify({
+                'error': 'API key is required',
+                'details': 'Please provide a valid Google API key in the X-API-Key header or set it in the session'
+            }), 401
+            
+        # التحقق من صحة المفتاح
+        if not verify_api_key(api_key):
+            return jsonify({
+                'error': 'Invalid API key',
+                'details': 'The provided API key is invalid or has expired. Please check your API key and try again.'
+            }), 401
 
         # Configure Gemini API with the provided key
         genai.configure(api_key=api_key)
 
         # Get request data
         data = request.get_json()
+        if not data:
+            return jsonify({
+                'error': 'Invalid request',
+                'details': 'Request body must be JSON'
+            }), 400
+            
         text = data.get('text', '')
         stage_index = data.get('stage', 0)
-
+    
         if not text:
-            return jsonify({'error': 'No text provided'}), 400
+            return jsonify({
+                'error': 'No text provided',
+                'details': 'Please provide the legal text to analyze'
+            }), 400
 
         if stage_index < 0 or stage_index >= len(STAGES):
             logger.warning("⚠️ رقم مرحلة غير صحيح")
-            return jsonify({'error': 'Invalid stage number'}), 400
+            return jsonify({
+                'error': 'Invalid stage number',
+                'details': f'Stage number must be between 0 and {len(STAGES)-1}'
+            }), 400
         
         logger.info(f"🔄 بدء طلب تحليل جديد للمرحلة {stage_index + 1}")
         
@@ -366,32 +459,83 @@ def analyze():
                 yield f"data: {json.dumps({'status': 'completed', 'stage_index': stage_index, 'total_stages': len(STAGES)}, ensure_ascii=False)}\n\n"
             except Exception as e:
                 logger.error(f"Error in generate: {str(e)}")
-                error_data = json.dumps({'error': str(e), 'status': 'error'}, ensure_ascii=False)
+                error_data = json.dumps({
+                    'error': str(e),
+                    'status': 'error',
+                    'details': 'An error occurred while generating the analysis'
+                }, ensure_ascii=False)
                 yield f"data: {error_data}\n\n"
         
         return Response(generate(), mimetype='text/event-stream')
 
     except Exception as e:
         logger.error(f"Error in analyze endpoint: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': str(e),
+            'details': 'An unexpected error occurred while processing your request'
+        }), 500
 
 @app.route('/set_api_key', methods=['POST'])
 def set_api_key():
     """Set API key in session"""
     try:
         data = request.get_json()
+        if not data:
+            logger.error("❌ طلب غير صالح: لا يوجد بيانات JSON")
+            return jsonify({
+                'error': 'Invalid request',
+                'details': 'Request body must be JSON',
+                'help': 'Send a POST request with {"api_key": "your-api-key"}'
+            }), 400
+            
         api_key = data.get('api_key')
+        logger.info(f"🔑 محاولة حفظ مفتاح API: {api_key[:5]}...")
         
-        if not api_key:
-            return jsonify({'error': 'API key is required'}), 400
+        if not api_key or len(api_key.strip()) == 0:
+            logger.error("❌ مفتاح API فارغ")
+            return jsonify({
+                'error': 'API key is required',
+                'details': 'Please provide a valid Google API key',
+                'help': 'Get your API key from https://makersuite.google.com/app/apikey'
+            }), 400
+            
+        # التحقق من صحة المفتاح قبل حفظه
+        if not verify_api_key(api_key):
+            logger.error("❌ فشل التحقق من صحة المفتاح")
+            return jsonify({
+                'error': 'Invalid API key',
+                'details': 'The provided API key is invalid or has expired. Please check your API key and try again.',
+                'help': 'Visit https://makersuite.google.com/app/apikey to get a new API key'
+            }), 400
             
         # حفظ المفتاح في الجلسة
         session['api_key'] = api_key
-        return jsonify({'status': 'success', 'message': 'API key saved successfully'})
+        logger.info("✅ تم حفظ مفتاح API في الجلسة بنجاح")
+        
+        # التحقق من حفظ المفتاح
+        saved_key = session.get('api_key')
+        if saved_key != api_key:
+            logger.error("❌ فشل التحقق من حفظ المفتاح في الجلسة")
+            return jsonify({
+                'error': 'Failed to save API key',
+                'details': 'The API key could not be saved in the session',
+                'help': 'Please try again or contact support'
+            }), 500
+            
+        return jsonify({
+            'status': 'success',
+            'message': 'API key saved successfully',
+            'details': 'The API key has been validated and saved in your session',
+            'next_steps': 'You can now use the /analyze endpoint to analyze legal texts'
+        })
         
     except Exception as e:
-        logger.error(f"Error setting API key: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"❌ خطأ في حفظ مفتاح API: {str(e)}")
+        return jsonify({
+            'error': str(e),
+            'details': 'An unexpected error occurred while setting the API key',
+            'help': 'Make sure you are sending a valid JSON request with an API key'
+        }), 500
 
 @app.route('/clear_api_key', methods=['POST'])
 def clear_api_key():
@@ -402,6 +546,99 @@ def clear_api_key():
     except Exception as e:
         logger.error(f"Error clearing API key: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/test_api', methods=['POST'])
+def test_api():
+    """Test if the API key is valid"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'error': 'Invalid request',
+                'details': 'Request body must be JSON',
+                'help': 'Send a POST request with {"api_key": "your-api-key"}'
+            }), 400
+            
+        api_key = data.get('api_key')
+        
+        if not api_key or len(api_key.strip()) == 0:
+            return jsonify({
+                'error': 'API key is required',
+                'details': 'Please provide a valid Google API key',
+                'help': 'Get your API key from https://makersuite.google.com/app/apikey'
+            }), 400
+            
+        # التحقق من تنسيق المفتاح
+        if not api_key.startswith("AI") or len(api_key) < 20:
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid API key format',
+                'details': 'API key must start with "AI" and be at least 20 characters long',
+                'help': 'Get a valid API key from https://makersuite.google.com/app/apikey'
+            }), 400
+            
+        # تكوين Gemini مع المفتاح
+        genai.configure(api_key=api_key)
+        
+        try:
+            # محاولة إنشاء نموذج بسيط للتحقق
+            model = genai.GenerativeModel('models/gemini-2.0-flash-001')
+            response = model.generate_content("Test")
+            
+            if response is None:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Failed to get response from API',
+                    'details': 'The API key is valid but no response was received',
+                    'help': 'Try again or contact support if the problem persists'
+                }), 400
+                
+            return jsonify({
+                'status': 'success',
+                'message': 'API key is valid',
+                'details': 'The API key has been successfully validated',
+                'next_steps': 'You can now use this API key for analysis'
+            })
+            
+        except Exception as e:
+            error_msg = str(e)
+            if "API_KEY_INVALID" in error_msg:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Invalid API key',
+                    'details': 'The provided API key is not valid',
+                    'help': 'Get a new API key from https://makersuite.google.com/app/apikey'
+                }), 400
+            elif "API_KEY_EXPIRED" in error_msg:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Expired API key',
+                    'details': 'The provided API key has expired',
+                    'help': 'Create a new API key from Google AI Studio'
+                }), 400
+            elif "QUOTA_EXCEEDED" in error_msg:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Quota exceeded',
+                    'details': 'You have exceeded your API quota',
+                    'help': 'Wait a while or upgrade your account'
+                }), 400
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'API test failed',
+                    'details': str(e),
+                    'help': 'Check your API key and try again'
+                }), 400
+                
+    except Exception as e:
+        logger.error(f"Error testing API key: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Unexpected error',
+            'details': str(e),
+            'help': 'Make sure you are sending a valid JSON request with an API key'
+        }), 500
 
 if __name__ == '__main__':
     logger.info("🌐 بدء تشغيل تطبيق Flask...")
