@@ -640,6 +640,43 @@ def test_api():
             'help': 'Make sure you are sending a valid JSON request with an API key'
         }), 500
 
+@app.route('/analyze_stage', methods=['POST'])
+def analyze_stage():
+    try:
+        data = request.get_json()
+        text = data.get('text', '')
+        stage_idx = int(data.get('stage_idx', 0))
+        api_key = data.get('api_key')
+        if not api_key:
+            return jsonify({'status': 'error', 'error': 'مطلوب مفتاح API'}), 401
+        if not text:
+            return jsonify({'status': 'error', 'error': 'يرجى إدخال النص القانوني'}), 400
+        if stage_idx < 0 or stage_idx >= len(STAGES):
+            return jsonify({'status': 'error', 'error': 'رقم مرحلة غير صحيح'}), 400
+        # تحقق من صحة المفتاح
+        if not verify_api_key(api_key):
+            return jsonify({'status': 'error', 'error': 'مفتاح API غير صالح'}), 401
+        genai.configure(api_key=api_key)
+        # تحليل مرحلة واحدة فقط
+        analysis_result = None
+        for result in generate_analysis(text, stage_idx):
+            try:
+                data = json.loads(result.replace('data: ', ''))
+                if data.get('status') == 'completed' or data.get('status') == 'error':
+                    analysis_result = data
+                    break
+            except Exception:
+                continue
+        if analysis_result:
+            if analysis_result.get('status') == 'completed':
+                return jsonify({'status': 'success', 'result': analysis_result['analysis']})
+            else:
+                return jsonify({'status': 'error', 'error': analysis_result.get('analysis', 'حدث خطأ أثناء التحليل')})
+        else:
+            return jsonify({'status': 'error', 'error': 'لم يتم الحصول على نتيجة التحليل'}), 500
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
 if __name__ == '__main__':
     logger.info("🌐 بدء تشغيل تطبيق Flask...")
     app.run(debug=True) 

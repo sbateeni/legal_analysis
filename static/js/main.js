@@ -45,6 +45,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (saveApiKeyButton) {
         saveApiKeyButton.addEventListener('click', saveApiKey);
     }
+
+    // Add event listeners for stage analysis buttons
+    document.querySelectorAll('.analyze-stage-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const stageIdx = this.getAttribute('data-stage');
+            // إظهار رسالة بجانب الزر
+            const statusSpan = document.getElementById(`stage-status-${stageIdx}`);
+            if (statusSpan) {
+                statusSpan.textContent = 'بدأ عملية التحليل...';
+                statusSpan.style.color = '#0d6efd';
+            }
+            analyzeSingleStage(stageIdx);
+        });
+    });
 });
 
 function showError(message) {
@@ -582,24 +596,31 @@ function updateUI(data) {
     }
 }
 
-// Function to format analysis text
+// دالة تنسيق المخرجات بشكل أجمل (فقرات ونقاط تلقائياً)
 function formatAnalysisText(text) {
-    // Split text into paragraphs
-    const paragraphs = text.split('\n').filter(p => p.trim());
-    
-    // Format each paragraph
-    return paragraphs.map(p => {
-        // Check if paragraph is a list item
-        if (p.trim().startsWith('-') || p.trim().startsWith('•')) {
-            return `<li>${p.trim().substring(1).trim()}</li>`;
+    if (!text) return '';
+    // تقسيم النص إلى أسطر
+    const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line);
+    let html = '';
+    let inList = false;
+    lines.forEach(line => {
+        // إذا كان السطر يبدأ بنقطة أو رقم
+        if (/^[-•\d]/.test(line)) {
+            if (!inList) {
+                html += '<ul>';
+                inList = true;
+            }
+            html += `<li>${line.replace(/^[-•\d.\s]+/, '')}</li>`;
+        } else {
+            if (inList) {
+                html += '</ul>';
+                inList = false;
+            }
+            html += `<p>${line}</p>`;
         }
-        // Check if paragraph is a heading
-        if (p.trim().endsWith(':')) {
-            return `<h5>${p.trim()}</h5>`;
-        }
-        // Regular paragraph
-        return `<p>${p.trim()}</p>`;
-    }).join('');
+    });
+    if (inList) html += '</ul>';
+    return html;
 }
 
 // Check if API key exists
@@ -610,4 +631,60 @@ function checkApiKey() {
         return false;
     }
     return true;
+}
+
+// دالة لتحليل مرحلة واحدة فقط
+async function analyzeSingleStage(stageIdx) {
+    const apiKey = localStorage.getItem('apiKey');
+    const text = document.getElementById('textInput').value;
+    if (!apiKey) {
+        showError('يرجى إدخال مفتاح API أولاً');
+        return;
+    }
+    if (!text.trim()) {
+        showError('يرجى إدخال النص القانوني أولاً');
+        return;
+    }
+    const resultDiv = document.getElementById(`stage-result-${stageIdx}`);
+    const statusSpan = document.getElementById(`stage-status-${stageIdx}`);
+    if (resultDiv) {
+        resultDiv.innerHTML = '<span class="loading">جاري التحليل...</span>';
+    }
+    if (statusSpan) {
+        statusSpan.textContent = 'بدأ عملية التحليل...';
+        statusSpan.style.color = '#0d6efd';
+    }
+    try {
+        const response = await fetch('/analyze_stage', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                text: text,
+                stage_idx: stageIdx,
+                api_key: apiKey
+            })
+        });
+        const data = await response.json();
+        if (data.status === 'success') {
+            resultDiv.innerHTML = `<div class=\"result-card\">${formatAnalysisText(data.result)}</div>`;
+            if (statusSpan) {
+                statusSpan.textContent = 'تم الانتهاء ✅';
+                statusSpan.style.color = '#48bb78';
+            }
+        } else {
+            resultDiv.innerHTML = `<span class=\"text-red-500\">${data.error || 'حدث خطأ أثناء التحليل'}</span>`;
+            if (statusSpan) {
+                statusSpan.textContent = 'حدث خطأ ❌';
+                statusSpan.style.color = '#f56565';
+            }
+        }
+    } catch (err) {
+        resultDiv.innerHTML = `<span class=\"text-red-500\">${err.message || 'فشل الاتصال بالخادم'}</span>`;
+        if (statusSpan) {
+            statusSpan.textContent = 'حدث خطأ ❌';
+            statusSpan.style.color = '#f56565';
+        }
+    }
 } 

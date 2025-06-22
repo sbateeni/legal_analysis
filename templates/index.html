@@ -23,6 +23,24 @@
             <div id="apiError" class="text-red-500" style="display: none;"></div>
         </div>
 
+        <div id="results" class="results-section" style="display:none;"></div>
+
+        <div id="stage-status-message" class="status-message" style="text-align:center; margin-bottom:20px;"></div>
+
+        <!-- قسم إدخال النص وزر الفحص الشامل (أعلى المراحل) -->
+        <h2>تحليل نص قانوني</h2>
+        <div class="text-input-section">
+            <h3>النص القانوني</h3>
+            <textarea id="textInput" placeholder="أدخل النص القانوني هنا..."></textarea>
+            <button id="analyzeButton" onclick="analyzeText()" disabled>فحص شامل</button>
+        </div>
+        <div class="progress-bar">
+            <div id="progress" class="progress"></div>
+        </div>
+        <div id="loading" class="loading">
+            جاري التحليل... يرجى الانتظار
+        </div>
+
         <h2>مراحل التحليل القانوني</h2>
         <div class="stages-list">
             {% for stage, info in stages.items() %}
@@ -35,27 +53,12 @@
                     <li>{{ point }}</li>
                     {% endfor %}
                 </ul>
-                <div class="stage-content"></div>
+                <button class="analyze-stage-btn" data-stage="{{ loop.index0 }}">تحليل هذه المرحلة</button>
+                <span class="stage-status-text" id="stage-status-{{ loop.index0 }}" style="margin-right:10px; color:#0d6efd;"></span>
+                <div class="stage-result" id="stage-result-{{ loop.index0 }}"></div>
             </div>
             {% endfor %}
         </div>
-
-        <h2>تحليل نص قانوني</h2>
-        <div class="text-input-section">
-            <h3>النص القانوني</h3>
-            <textarea id="textInput" placeholder="أدخل النص القانوني هنا..."></textarea>
-            <button id="analyzeButton" onclick="analyzeText()" disabled>تحليل النص</button>
-        </div>
-        
-        <div class="progress-bar">
-            <div id="progress" class="progress"></div>
-        </div>
-        
-        <div id="loading" class="loading">
-            جاري التحليل... يرجى الانتظار
-        </div>
-        
-        <div id="results" class="results-section" style="display:none;"></div>
     </div>
 
     <!-- Pass stages data to JavaScript -->
@@ -64,4 +67,4 @@
     </script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
-</html> 
+</html>
