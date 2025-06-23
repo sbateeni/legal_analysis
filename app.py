@@ -83,14 +83,13 @@ STAGES = [
 IS_RENDER = os.environ.get('RENDER', False)
 
 def get_api_key():
-    """Get API key from header, session, or environment variable"""
+    """Get API key from header or session only (Vercel mode)"""
     try:
         # أولاً: من الهيدر
         api_key = request.headers.get('X-API-Key')
         if api_key and len(api_key.strip()) > 0:
             logger.info(f"🔑 تم استرجاع مفتاح API من الهيدر: {api_key[:5]}...")
             return api_key
-
         # ثانياً: من الجلسة
         if 'api_key' in session:
             api_key = session['api_key']
@@ -99,15 +98,8 @@ def get_api_key():
                 logger.error("❌ مفتاح API فارغ في الجلسة")
                 return None
             return api_key
-
-        # ثالثاً: من متغير البيئة
-        env_api_key = os.getenv('GOOGLE_API_KEY') or os.getenv('GEMINI_API_KEY')
-        if env_api_key and len(env_api_key.strip()) > 0:
-            logger.info("🔑 تم استرجاع مفتاح API من المتغير البيئي")
-            session['api_key'] = env_api_key
-            return env_api_key
-
-        logger.error("❌ لم يتم العثور على مفتاح API صالح")
+        # لا يوجد مفتاح
+        logger.error("❌ لم يتم العثور على مفتاح API. يجب على كل مستخدم إرسال مفتاحه الخاص في كل طلب.")
         return None
     except Exception as e:
         logger.error(f"❌ خطأ في الحصول على مفتاح API: {str(e)}")
