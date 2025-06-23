@@ -167,12 +167,10 @@ def verify_and_enhance_analysis(model, stage, analysis, text):
     """Verify and enhance the analysis for accuracy and completeness"""
     try:
         logger.info(f"🔍 جاري التحقق من دقة تحليل {stage}")
-        
         # تقسيم النص إلى أجزاء أصغر إذا كان طويلاً
         max_text_length = 4000  # الحد الأقصى للنص
         if len(text) > max_text_length:
             text = text[:max_text_length] + "..."
-        
         # Create verification prompt
         verification_prompt = f"""
         قم بمراجعة وتحسين التحليل التالي للمرحلة: {stage}
@@ -192,7 +190,6 @@ def verify_and_enhance_analysis(model, stage, analysis, text):
         
         قدم التحليل المحسن مع شرح التغييرات التي تمت.
         """
-        
         try:
             response = model.generate_content(verification_prompt)
             if response and response.text:
@@ -205,7 +202,6 @@ def verify_and_enhance_analysis(model, stage, analysis, text):
         except Exception as e:
             logger.error(f"❌ خطأ في تحسين التحليل: {str(e)}")
             return analysis
-            
     except Exception as e:
         logger.error(f"❌ خطأ في التحقق من تحليل {stage}: {str(e)}")
         return analysis
@@ -217,28 +213,22 @@ def generate_analysis(text, stage_index):
     try:
         logger.info("🚀 بدء عملية التحليل القانوني...")
         logger.info(f"📝 النص المدخل: {text[:100]}...")
-
         # تقسيم النص إلى أجزاء أصغر إذا كان طويلاً
         max_text_length = 4000  # الحد الأقصى للنص
         if len(text) > max_text_length:
             text = text[:max_text_length] + "..."
-
         logger.info("⚙️ تهيئة نموذج Gemini...")
         model = genai.GenerativeModel('models/gemini-2.0-flash-001')
-
         # تحليل مرحلة واحدة فقط
         stage = STAGES[stage_index]
         logger.info(f"\n📊 المرحلة {stage_index + 1}/12: {stage}")
         logger.info("🔍 جاري تحليل المرحلة...")
-
         prompt = get_stage_prompt(stage, text)
         logger.debug(f"Prompt for {stage}: {prompt[:200]}...")
-
         # Get initial analysis with retry mechanism and timeout
         max_retries = 3 if IS_RENDER else 1
         retry_count = 0
         initial_analysis = None
-
         while retry_count < max_retries:
             try:
                 response = model.generate_content(prompt)
@@ -260,7 +250,6 @@ def generate_analysis(text, stage_index):
                     time.sleep(2)
                 else:
                     raise
-
         if initial_analysis:
             try:
                 enhanced_analysis = verify_and_enhance_analysis(model, stage, initial_analysis, text)
@@ -295,10 +284,8 @@ def generate_analysis(text, stage_index):
                 'stage_index': stage_index,
                 'total_stages': len(STAGES)
             }
-
         # Stream the result for this stage فقط
         yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
-
     except Exception as e:
         logger.error(f"❌ خطأ في generate_analysis: {str(e)}")
         logger.error(f"تفاصيل الخطأ: {traceback.format_exc()}")
@@ -413,17 +400,14 @@ def analyze():
                 'error': 'API key is required',
                 'details': 'Please provide a valid Google API key in the X-API-Key header or set it in the session'
             }), 401
-            
         # التحقق من صحة المفتاح
         if not verify_api_key(api_key):
             return jsonify({
                 'error': 'Invalid API key',
                 'details': 'The provided API key is invalid or has expired. Please check your API key and try again.'
             }), 401
-
         # Configure Gemini API with the provided key
         genai.configure(api_key=api_key)
-
         # Get request data
         data = request.get_json()
         if not data:
@@ -431,34 +415,27 @@ def analyze():
                 'error': 'Invalid request',
                 'details': 'Request body must be JSON'
             }), 400
-            
         text = data.get('text', '')
         stage_index = data.get('stage', 0)
-    
         if not text:
             return jsonify({
                 'error': 'No text provided',
                 'details': 'Please provide the legal text to analyze'
             }), 400
-
         if stage_index < 0 or stage_index >= len(STAGES):
             logger.warning("⚠️ رقم مرحلة غير صحيح")
             return jsonify({
                 'error': 'Invalid stage number',
                 'details': f'Stage number must be between 0 and {len(STAGES)-1}'
             }), 400
-        
         logger.info(f"🔄 بدء طلب تحليل جديد للمرحلة {stage_index + 1}")
-        
         def generate():
             try:
                 # إرسال إشعار ببدء التحليل
                 yield f"data: {json.dumps({'status': 'started', 'stage_index': stage_index, 'total_stages': len(STAGES)}, ensure_ascii=False)}\n\n"
-                
                 # تحليل المرحلة الحالية
                 for result in generate_analysis(text, stage_index):
                     yield result
-                    
                 # إرسال إشعار بانتهاء التحليل
                 yield f"data: {json.dumps({'status': 'completed', 'stage_index': stage_index, 'total_stages': len(STAGES)}, ensure_ascii=False)}\n\n"
             except Exception as e:
@@ -469,9 +446,7 @@ def analyze():
                     'details': 'An error occurred while generating the analysis'
                 }, ensure_ascii=False)
                 yield f"data: {error_data}\n\n"
-        
         return Response(generate(), mimetype='text/event-stream')
-
     except Exception as e:
         logger.error(f"Error in analyze endpoint: {str(e)}")
         return jsonify({
